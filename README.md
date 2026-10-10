@@ -2,6 +2,8 @@
 
 **English** | [Tiếng Việt](README.vi.md)
 
+![SketchUp MCP: ask in plain language and the AI works in your SketchUp model](docs/images/hero.png)
+
 SketchUp MCP lets Claude work directly in the SketchUp model you have open. Ask in plain language, in any language, and Claude reads the model, runs quantity takeoffs by tag or material, models geometry, assigns materials and tags, takes screenshots to check its own work, and exports images and files. It ships as a Claude Desktop extension (`.mcpb`) that runs on the Node.js built into Claude Desktop, plus a small Ruby extension for SketchUp (the **SU MCP Bridge**). You do not need to install Python or Node.js.
 
 Current version: **1.2.0** - [download it from Releases](https://github.com/2ez4gcx/sketchup-mcp/releases/latest).
@@ -28,6 +30,12 @@ Highlights:
 - **Safe defaults**: an existing material keeps its color unless Claude passes `update_existing=true`. `delete_entities` only deletes by explicit id, never by selection. After a timeout, the error tells Claude whether the command may already have run, so it does not repeat the edit and create duplicate geometry.
 - **Version check**: `ping` shows which model Claude is controlling and warns when the bridge in SketchUp is older than the one bundled in the extension.
 - **SketchUp menu** (*Extensions > SU MCP Bridge*): `Start server`, `Stop server`, `Status`, `Open log file`, `Change port...`.
+
+## Demo
+
+![A pavilion built step by step through the SketchUp MCP tools](docs/images/demo.gif)
+
+This demo pavilion was built entirely through the MCP tools (`create_box`, `create_shape`, `run_ruby`, `set_material`, `set_tag`), then checked with `screenshot` and `quantity_takeoff` - 82 tool calls in total.
 
 ## How it works
 

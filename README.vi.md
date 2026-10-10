@@ -2,6 +2,8 @@
 
 [English](README.md) | **Tiếng Việt**
 
+![SketchUp MCP: hỏi bằng ngôn ngữ tự nhiên, AI làm việc trực tiếp trong mô hình SketchUp](docs/images/hero.png)
+
 SketchUp MCP cho phép Claude làm việc trực tiếp trên mô hình SketchUp đang mở. Bạn hỏi bằng ngôn ngữ tự nhiên (tiếng Việt, tiếng Anh hay ngôn ngữ nào cũng được), Claude sẽ đọc mô hình, bóc khối lượng theo tag hoặc vật liệu, dựng hình, gán vật liệu và tag, chụp ảnh để tự kiểm tra, xuất ảnh và xuất file. Gồm hai phần: một extension cho Claude Desktop (`.mcpb`, chạy bằng Node.js có sẵn trong Claude Desktop) và một plugin Ruby nhỏ cho SketchUp (**SU MCP Bridge**). Không cần cài Python hay Node.js.
 
 Phiên bản 1.2.0 (menu, thông báo và mô tả công cụ bằng tiếng Anh). Bản đầy đủ và cập nhật nhất của tài liệu này là [README.md](README.md) (tiếng Anh).
@@ -25,6 +27,12 @@ Phiên bản 1.2.0 (menu, thông báo và mô tả công cụ bằng tiếng Anh
 - **`install_sketchup_bridge`**: Claude tự cài/cập nhật plugin vào thư mục Plugins của mọi bản SketchUp đã từng mở (`dry_run` chỉ báo sẽ làm gì).
 - **Mặc định an toàn**: vật liệu đã có giữ nguyên màu trừ khi dùng `update_existing=true`; `delete_entities` chỉ xóa theo id; khi quá thời gian chờ, thông báo cho biết lệnh có thể đã chạy để tránh làm lại gây trùng hình.
 - **Menu SketchUp** (*Extensions > SU MCP Bridge*): `Start server`, `Stop server`, `Status`, `Open log file`, `Change port...`.
+
+## Demo
+
+![Pavilion dựng từng bước bằng các tool SketchUp MCP](docs/images/demo.gif)
+
+Pavilion demo này được dựng hoàn toàn bằng các tool MCP (`create_box`, `create_shape`, `run_ruby`, `set_material`, `set_tag`), sau đó kiểm tra bằng `screenshot` và `quantity_takeoff` - tổng cộng 82 lần gọi tool.
 
 ## Cách hoạt động
 

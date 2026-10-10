@@ -9,6 +9,7 @@
 !/LICENSE
 !/extension/
 !/mcpb/
+!/docs/
 
 # Build outputs and dependencies
 mcpb/node_modules/

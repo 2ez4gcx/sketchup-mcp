@@ -58,6 +58,23 @@ Tùy chọn trong *Settings > Extensions > SketchUp MCP > Configure*: cổng (m�
 
 Câu lệnh mẫu: [`mcpb/release-docs/vi/CAU_LENH_MAU.txt`](mcpb/release-docs/vi/CAU_LENH_MAU.txt). Hướng dẫn đầy đủ: [`mcpb/release-docs/vi/HUONG_DAN_SU_DUNG.html`](mcpb/release-docs/vi/HUONG_DAN_SU_DUNG.html).
 
+## Ứng dụng AI khác (MCP client)
+
+Cài một chạm bằng file `.mcpb` chỉ có trên Claude Desktop. Server là MCP chuẩn (stdio) nên ứng dụng nào chạy được MCP server trên máy đều dùng được, nhưng cần cài **Node.js 18+**.
+
+1. Giải nén file `.mcpb` (thực chất là file zip): `mkdir C:\Tools\sketchup-mcp` rồi `tar -xf sketchup-mcp-1.2.0.mcpb -C C:\Tools\sketchup-mcp`. Server nằm ở `C:/Tools/sketchup-mcp/server/index.mjs`.
+2. Khai báo server trong ứng dụng (lệnh `node`, đối số là đường dẫn trên). Cấu hình mẫu cho từng ứng dụng: xem mục **Other MCP clients** trong [README.md](README.md#other-mcp-clients).
+3. Cài bridge vào SketchUp như bước 2–3 ở trên, rồi khởi động lại SketchUp.
+
+| Ứng dụng | Trạng thái |
+|---|---|
+| Claude Desktop | Đã test |
+| Claude Code | Đã test kết nối (`claude mcp list`: Connected) |
+| Cursor, VS Code (Copilot), Windsurf/Devin Desktop, Codex CLI, ChatGPT desktop (chế độ Codex), Gemini CLI | Cấu hình theo tài liệu chính thức, chưa test |
+| ChatGPT bản web | **Không hỗ trợ** (chỉ kết nối MCP server từ xa qua internet) |
+
+Screenshot cần model đọc được ảnh. Nếu máy vẫn chạy server Python cũ tên `sketchup`, đặt tên khác cho server này (vd `sketchup-node`) để không bị trùng tool.
+
 ## Lưu ý an toàn
 
 - **Chỉ trong máy**: bridge chỉ nghe trên `127.0.0.1`, máy khác trong mạng không kết nối được. Socket không có xác thực, nên chương trình khác chạy trên cùng máy vẫn gửi lệnh được khi bridge đang bật; muốn tắt trong phiên làm việc này, dùng *Extensions > SU MCP Bridge > Stop server* (lần mở SketchUp sau sẽ tự bật lại).

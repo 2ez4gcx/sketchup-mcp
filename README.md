@@ -66,6 +66,152 @@ To update, install the new `.mcpb` over the old one (your settings are kept), as
 
 Sample prompts: [`mcpb/release-docs/en/SAMPLE_PROMPTS.txt`](mcpb/release-docs/en/SAMPLE_PROMPTS.txt). The full user guide is [`mcpb/release-docs/en/GUIDE.html`](mcpb/release-docs/en/GUIDE.html).
 
+## Other MCP clients
+
+The `.mcpb` one-click install is specific to Claude Desktop, but the server is a standard MCP server over stdio, so any
+client that can launch local MCP servers can use it. Outside Claude Desktop you need **Node.js 18 or later** on your PATH.
+
+**1. Get the server.** The `.mcpb` file is a zip archive. Extract it to a folder of your choice, for example with the
+`tar` that ships with Windows 10/11:
+
+```bat
+mkdir C:\Tools\sketchup-mcp
+tar -xf sketchup-mcp-1.2.0.mcpb -C C:\Tools\sketchup-mcp
+```
+
+The server is then `C:/Tools/sketchup-mcp/server/index.mjs` (use forward slashes in configs). The folder also contains
+the bridge files, so `install_sketchup_bridge` works from any client. You can also build it from source
+(`mcpb/dist/bundle/server/index.mjs`).
+
+**2. Register it in your client** (snippets below). Optional environment variables: `SKETCHUP_MCP_PORT` (default 9876)
+and `SKETCHUP_MCP_TIMEOUT` (seconds per command, default 120). If your client has its own tool-call timeout, set it
+above `SKETCHUP_MCP_TIMEOUT`.
+
+**3. Install the bridge** as in [Install](#install) step 2-3 (ask the assistant to run `install_sketchup_bridge`, or use
+`su_mcp.rbz`), then restart SketchUp.
+
+| Client | How | Status |
+|---|---|---|
+| Claude Desktop | `.mcpb` extension | Tested |
+| Claude Code | `claude mcp add` | Connection tested (`claude mcp list`: Connected) |
+| Cursor | `mcp.json` | Config from official docs, not tested yet |
+| VS Code (GitHub Copilot agent mode) | `mcp.json` | Config from official docs, not tested yet |
+| Windsurf / Devin Desktop | `mcp_config.json` | Config from official docs, not tested yet |
+| OpenAI Codex CLI and the ChatGPT desktop app (Codex mode) | `config.toml` | Config from official docs, not tested yet |
+| Google Gemini CLI | `settings.json` | Config from official docs, not tested yet |
+| ChatGPT on the web (chatgpt.com) | - | **Not supported**: it only connects to remote MCP servers over public HTTPS |
+
+Screenshots are returned as MCP images, so the model must support image input to "see" them. Tool descriptions are
+written for any model, but tool-use quality varies between models. If you still run the old Python server under the
+name `sketchup`, give this one another name (e.g. `sketchup-node`) to avoid duplicate tools.
+
+<details>
+<summary><b>Claude Code</b></summary>
+
+```bat
+claude mcp add sketchup --scope user -e SKETCHUP_MCP_TIMEOUT=120 -- node C:/Tools/sketchup-mcp/server/index.mjs
+claude mcp list
+```
+
+Put the server name before `-e` (an argument right after `-e` is read as another `KEY=value`). Use `--scope project` to
+write a shared `.mcp.json` in the current folder instead (Claude Code asks for approval before using it).
+</details>
+
+<details>
+<summary><b>Cursor</b> - <code>%USERPROFILE%\.cursor\mcp.json</code> (all projects) or <code>.cursor\mcp.json</code> (one project)</summary>
+
+```json
+{
+  "mcpServers": {
+    "sketchup": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["C:/Tools/sketchup-mcp/server/index.mjs"],
+      "env": { "SKETCHUP_MCP_TIMEOUT": "120" }
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary><b>VS Code</b> (GitHub Copilot agent mode) - <code>.vscode\mcp.json</code> or the user <code>mcp.json</code> (<i>MCP: Open User Configuration</i>)</summary>
+
+Note the top-level key is `servers`, not `mcpServers`:
+
+```json
+{
+  "servers": {
+    "sketchup": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["C:/Tools/sketchup-mcp/server/index.mjs"],
+      "env": { "SKETCHUP_MCP_TIMEOUT": "120" }
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary><b>Windsurf / Devin Desktop</b> - <code>%APPDATA%\devin\mcp_config.json</code> (older Windsurf: <code>%USERPROFILE%\.codeium\windsurf\mcp_config.json</code>)</summary>
+
+```json
+{
+  "mcpServers": {
+    "sketchup": {
+      "command": "node",
+      "args": ["C:/Tools/sketchup-mcp/server/index.mjs"],
+      "env": { "SKETCHUP_MCP_TIMEOUT": "120" }
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary><b>OpenAI Codex CLI / ChatGPT desktop app (Codex mode)</b> - <code>%USERPROFILE%\.codex\config.toml</code></summary>
+
+Both use the same file; in the ChatGPT desktop app you can also add it under *Settings > MCP servers > STDIO*.
+Codex stops a tool call after 60 s by default, so raise `tool_timeout_sec`:
+
+```toml
+[mcp_servers.sketchup]
+command = "node"
+args = ["C:/Tools/sketchup-mcp/server/index.mjs"]
+tool_timeout_sec = 180
+
+[mcp_servers.sketchup.env]
+SKETCHUP_MCP_TIMEOUT = "120"
+```
+
+Or: `codex mcp add sketchup --env SKETCHUP_MCP_TIMEOUT=120 -- node C:/Tools/sketchup-mcp/server/index.mjs`
+(then add `tool_timeout_sec` by hand).
+</details>
+
+<details>
+<summary><b>Google Gemini CLI</b> - <code>%USERPROFILE%\.gemini\settings.json</code> (or <code>.gemini\settings.json</code> in a project)</summary>
+
+```json
+{
+  "mcpServers": {
+    "sketchup": {
+      "command": "node",
+      "args": ["C:/Tools/sketchup-mcp/server/index.mjs"],
+      "env": { "SKETCHUP_MCP_TIMEOUT": "120" }
+    }
+  }
+}
+```
+
+Or: `gemini mcp add -s user -e SKETCHUP_MCP_TIMEOUT=120 sketchup node C:/Tools/sketchup-mcp/server/index.mjs`.
+For personal Google accounts, Gemini CLI has been replaced by Antigravity CLI, which uses its own MCP config file.
+</details>
+
+**ChatGPT on the web** cannot start local programs; it would need this server exposed on a public HTTPS endpoint.
+That is not recommended: `run_ruby` executes arbitrary Ruby inside SketchUp, and the bridge has no authentication.
+Use the ChatGPT desktop app (Codex mode) instead.
+
 ## Safety notes
 
 - **Localhost only.** The bridge listens on `127.0.0.1`, so other machines on the network cannot connect. The socket has no authentication, though: any program running on the same computer can send commands while the bridge is running. To turn it off for the current session, use *Extensions > SU MCP Bridge > Stop server* (it starts again with SketchUp).

@@ -1,0 +1,58 @@
+SKETCHUP MCP – CÂU LỆNH MẪU (copy vào chat Claude Desktop)
+===========================================================
+VỀ CÁC CÂU LỆNH NÀY: không cần gõ chính xác từng chữ. Claude hiểu ngôn ngữ tự nhiên bằng bất kỳ ngôn ngữ nào
+(tiếng Việt, tiếng Anh...), nên cứ diễn đạt theo cách của bạn, trộn tiếng Anh cũng được. Chỉ cần chính xác:
+  - số liệu và đơn vị (nói rõ mm; diện tích m², thể tích m³, góc theo độ),
+  - tên đối tượng (tag, vật liệu, component) viết đúng như trong mô hình,
+  - đường dẫn file (vd D:/Export/phoi_canh.png),
+  - ý định với thao tác rủi ro (xóa, lưu/ghi đè, run_ruby): nói rõ cái gì được đổi và cái gì không được đổi.
+Mẹo: chọn đối tượng trong SketchUp trước, rồi nói "cái đang chọn" / "các đối tượng đang chọn"
+(vd "dời các đối tượng đang chọn lên 300 mm").
+
+Mẹo chung: nói rõ đơn vị mm; sau mỗi bước sửa, nhờ "chụp ảnh kiểm tra"; sai thì nói "undo bước vừa rồi".
+
+KIỂM TRA KẾT NỐI
+- Ping SketchUp
+- Cài SU MCP Bridge vào SketchUp            (lần đầu, hoặc khi ping báo plugin cũ)
+  -> Sau đó thoát hẳn SketchUp rồi mở lại: Extensions > SU MCP Bridge > Status phải báo "RUNNING on 127.0.0.1:9876".
+
+ĐỌC & THỐNG KÊ (an toàn, không sửa mô hình)
+- Mô hình này có gì? Thống kê tag, vật liệu và component.
+- Liệt kê các component và số lượng, sắp xếp giảm dần.
+- Đếm số cửa D1, cửa sổ W1 và ghế trong mô hình.
+- Các đối tượng tôi đang chọn là gì, kích thước bao bao nhiêu mm?
+- Tag nào đang ẩn? Vật liệu nào có texture?
+
+BÓC KHỐI LƯỢNG
+- Bóc khối lượng theo tag, lập bảng diện tích (m²) và thể tích (m³).
+- Bóc khối lượng theo vật liệu, chỉ tính phần đang chọn.
+- Tính diện tích MẶT TRÊN của các sàn tag "San" (diện tích sàn thực).   (Claude sẽ dùng run_ruby)
+  -> Lưu ý: face_area_m2 của bóc khối lượng là tổng MỌI mặt (khối đặc gồm mặt trên, mặt dưới, mặt cạnh),
+     không phải diện tích sàn. Thể tích chỉ tính cho group/component là khối đặc (solid).
+
+DỰNG HÌNH
+- Tạo khối hộp 2000 x 1000 x 750 mm tại gốc tọa độ, tên "Ban hop", vật liệu Gỗ sồi màu #B3A092.
+- Tạo sàn dày 120 mm từ các điểm (0,0), (6000,0), (6000,4000), (0,4000), tag "San".
+- Vẽ đường bao qua các điểm (0,0), (3000,0), (3000,2000), (0,2000) và tạo mặt.   (kết quả báo face_created)
+- Chèn component "Ghe van phong" có sẵn trong mô hình tại (1500, 800, 0), xoay 90 độ.
+- Dời các đối tượng đang chọn lên 300 mm theo trục Z.
+- Xoay đối tượng đang chọn 45 độ quanh tâm của nó.
+  -> Kiểm tra: đọc bounds_mm trong kết quả hoặc nhờ "chụp ảnh góc trên".
+
+VẬT LIỆU & TAG
+- Gán tag "Tuong" cho các đối tượng đang chọn.
+- Đổi vật liệu đang chọn sang "Gach 600x600" màu #D9D3C9.
+- Chọn 1 đối tượng đang dùng vật liệu "Son tuong", rồi: đổi màu vật liệu đó sang #F4F0EB cho cả mô hình.
+  (Claude dùng update_existing; vật liệu đã có KHÔNG bị đổi màu nếu bạn không yêu cầu rõ)
+
+GÓC NHÌN, ẢNH & FILE
+- Chụp ảnh góc iso / góc trên / mặt trước cho tôi xem.   (góc nhìn của bạn được giữ nguyên sau khi chụp)
+- Đặt góc nhìn mặt trước, chiếu song song.
+- Xuất ảnh PNG 1920x1080 góc iso ra Desktop, tên phoi_canh.png     (thư mục chưa có sẽ được tạo)
+- Xuất mô hình ra Desktop, tên mat_bang.dwg          (một số định dạng cần SketchUp Pro)
+- Lưu mô hình.                                        (cẩn thận: ghi đè file hiện tại)
+
+KHI CẦN NÂNG CAO (Claude sẽ dùng run_ruby — đọc kỹ code trước khi cho phép)
+- Đổi tên tất cả component có chữ "Chair" thành "Ghe".
+- Liệt kê các mặt chưa gán vật liệu nằm trong tag "Tuong".
+  -> Cả đoạn run_ruby là một bước Undo: kết quả sai thì nói "undo bước vừa rồi".

@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SketchUp MCP – User Guide</title>
+<style>
+  :root {
+    --ink: #1f2328; --muted: #5b6168; --line: #d8d4ce; --paper: #ffffff; --soft: #f6f3ef;
+    --accent: #c51e2d; --accent-soft: #fbeceb; --ok: #2f6f3e; --ok-soft: #e8f3ea; --warn: #8a5a00; --warn-soft: #fdf3dc;
+    --code: #f1efeb;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--soft); color: var(--ink); font: 15px/1.6 "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+  .sheet { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 36px 40px; }
+  header.cover { border-bottom: 3px solid var(--accent); padding-bottom: 18px; margin-bottom: 24px; }
+  header.cover .kicker { color: var(--accent); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; font-size: 12px; }
+  h1 { font-size: 30px; line-height: 1.2; margin: 6px 0 8px; }
+  header.cover p { margin: 0; color: var(--muted); }
+  h2 { font-size: 20px; margin: 34px 0 10px; padding-top: 6px; border-top: 1px solid var(--line); }
+  h2 .num { display: inline-block; min-width: 30px; height: 30px; line-height: 30px; text-align: center; border-radius: 50%; background: var(--accent); color: #fff; font-size: 15px; margin-right: 8px; }
+  h3 { font-size: 16px; margin: 20px 0 6px; }
+  p, li { max-width: 72ch; }
+  ol, ul { padding-left: 22px; }
+  li { margin: 4px 0; }
+  code, kbd, .path { font-family: Consolas, "Cascadia Mono", monospace; font-size: 13.5px; background: var(--code); border-radius: 5px; padding: 1px 6px; overflow-wrap: anywhere; }
+  kbd { border: 1px solid var(--line); border-bottom-width: 2px; background: #fff; }
+  .menu { font-weight: 600; }
+  .box { border-radius: 10px; padding: 12px 16px; margin: 14px 0; border: 1px solid; }
+  .box.ok { background: var(--ok-soft); border-color: #bcd9c3; }
+  .box.warn { background: var(--warn-soft); border-color: #ecd49a; }
+  .box.red { background: var(--accent-soft); border-color: #efc2c0; }
+  .box strong:first-child { display: block; margin-bottom: 2px; }
+  .say { display: block; background: #fff; border: 1px dashed var(--line); border-left: 4px solid var(--accent); border-radius: 6px; padding: 8px 12px; margin: 8px 0; font-style: italic; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 7px 9px; text-align: left; vertical-align: top; }
+  th { background: var(--soft); }
+  .tablewrap { overflow-x: auto; }
+  figure { margin: 16px 0; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption { color: var(--muted); font-size: 13px; text-align: center; margin-top: 4px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+  .card h4 { margin: 0 0 4px; font-size: 14.5px; }
+  .muted { color: var(--muted); }
+  footer { margin-top: 36px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 12px; }
+  @media (max-width: 640px) { .sheet { padding: 22px 16px; } .grid2 { grid-template-columns: 1fr; } h1 { font-size: 24px; } }
+  @media print {
+    body { background: #fff; font-size: 12.5px; }
+    main { padding: 0; max-width: none; }
+    .sheet { border: 0; padding: 0; }
+    p, li { max-width: none; }
+    h2 { break-after: avoid; } .box, figure, .card, tr { break-inside: avoid; }
+    footer { margin-top: 18px; }
+    @page { size: A4; margin: 16mm 14mm; }
+  }
+</style>
+</head>
+<body>
+<main><div class="sheet">
+
+<header class="cover">
+  <div class="kicker">User guide · Version __VERSION__</div>
+  <h1>SketchUp MCP – Let Claude work directly in SketchUp</h1>
+  <p>Ask Claude in plain language – in any language – to read your model, run quantity takeoffs, model geometry, assign materials and tags, take screenshots and export files, right in the SketchUp window you have open. <strong>No Python or Node.js installation needed.</strong></p>
+</header>
+
+<figure>
+  <svg viewBox="0 0 760 150" role="img" aria-label="Diagram: Claude Desktop, the SketchUp MCP extension, and the SU MCP Bridge plugin inside SketchUp">
+    <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5b6168"/></marker></defs>
+    <rect x="10" y="30" width="200" height="90" rx="12" fill="#f6f3ef" stroke="#d8d4ce"/>
+    <text x="110" y="68" text-anchor="middle" font-size="16" font-weight="600" fill="#1f2328">Claude Desktop</text>
+    <text x="110" y="92" text-anchor="middle" font-size="12.5" fill="#5b6168">you chat in any language</text>
+    <rect x="280" y="30" width="200" height="90" rx="12" fill="#fbeceb" stroke="#efc2c0"/>
+    <text x="380" y="62" text-anchor="middle" font-size="16" font-weight="600" fill="#1f2328">SketchUp MCP</text>
+    <text x="380" y="84" text-anchor="middle" font-size="12.5" fill="#5b6168">.mcpb file installed in Claude</text>
+    <text x="380" y="102" text-anchor="middle" font-size="12.5" fill="#5b6168">(runs on the built-in Node)</text>
+    <rect x="550" y="30" width="200" height="90" rx="12" fill="#e8f3ea" stroke="#bcd9c3"/>
+    <text x="650" y="62" text-anchor="middle" font-size="16" font-weight="600" fill="#1f2328">SketchUp</text>
+    <text x="650" y="84" text-anchor="middle" font-size="12.5" fill="#5b6168">+ SU MCP Bridge plugin</text>
+    <text x="650" y="102" text-anchor="middle" font-size="12.5" fill="#5b6168">(starts with SketchUp)</text>
+    <line x1="212" y1="75" x2="276" y2="75" stroke="#5b6168" stroke-width="2" marker-end="url(#a)"/>
+    <line x1="482" y1="75" x2="546" y2="75" stroke="#5b6168" stroke-width="2" marker-end="url(#a)"/>
+    <text x="514" y="66" text-anchor="middle" font-size="11" fill="#5b6168">127.0.0.1</text>
+    <text x="514" y="96" text-anchor="middle" font-size="11" fill="#5b6168">port 9876</text>
+  </svg>
+  <figcaption>Two parts to install: the extension for Claude (step 1) and the plugin for SketchUp (step 2). The connection never leaves your computer.</figcaption>
+</figure>
+
+<h2><span class="num">0</span>What you need</h2>
+<ul>
+  <li><strong>Windows 10/11</strong> and a recent <strong>Claude Desktop</strong> (download at <span class="path">claude.ai/download</span>), signed in to your Claude account.</li>
+  <li><strong>SketchUp</strong> 2017 or later (tested in real projects on <strong>SketchUp 2023</strong>). Each SketchUp version must have been <em>opened at least once</em> before you install the plugin.</li>
+  <li><strong>Unzip</strong> the zip file you downloaded (right-click → <span class="menu">Extract All</span>). The extracted folder contains <span class="path">01_CLAUDE_EXTENSION\sketchup-mcp-__VERSION__.mcpb</span> and <span class="path">02_SKETCHUP_PLUGIN_BACKUP\su_mcp.rbz</span>.</li>
+</ul>
+<div class="box warn"><strong>Project data</strong>When you ask a question, Claude reads model information (object names, quantities, screenshots…) and sends it to Anthropic's Claude service for processing. Follow your firm's and your client's rules for confidential projects; while testing, work on a <strong>copy</strong> of the project file.</div>
+
+<h2><span class="num">1</span>Install the extension in Claude Desktop</h2>
+<ol>
+  <li>Open Claude Desktop → click your name/avatar → <span class="menu">Settings</span> (or <kbd>Ctrl</kbd>+<kbd>,</kbd>) → <span class="menu">Extensions</span>.</li>
+  <li>Drag and drop <span class="path">sketchup-mcp-__VERSION__.mcpb</span> into the Extensions window, <em>or</em> click <span class="menu">Advanced settings → Install Extension…</span> and pick the file.</li>
+  <li>Review the <strong>SketchUp MCP</strong> extension details → click <span class="menu">Install</span>. Claude may warn that the extension is <em>unsigned</em>: this build is not code-signed, so only install a file you got from the project's official release, then click Install. The extension is enabled automatically after installation.</li>
+</ol>
+<div class="box ok"><strong>Tip</strong>The Microsoft Store version of Claude does <em>not</em> open a .mcpb file on double-click – install it through Settings as above. If you cannot see Extensions or the Install Extension button, your organization may have disabled this feature: contact your administrator. The extension's <span class="menu">Configure</span> page has a per-command <em>Timeout</em> (default 120 seconds) and the <em>port</em> (default 9876 – do not change it unless you are told to, because it must be changed in SketchUp at the same time).</div>
+
+<h2><span class="num">2</span>Install the SU MCP Bridge plugin in SketchUp</h2>
+<h3>Quick way – let Claude install it</h3>
+<ol>
+  <li>Start a new chat in Claude Desktop and type:<span class="say">Install SU MCP Bridge in SketchUp</span></li>
+  <li>Claude asks for permission to use the <code>install_sketchup_bridge</code> tool → click <span class="menu">Allow</span>. The result lists the SketchUp versions found on your computer (e.g. 2023: <code>installed</code>).</li>
+  <li><strong>Fully quit SketchUp and reopen it.</strong></li>
+  <li>Check: in SketchUp go to <span class="menu">Extensions → SU MCP Bridge → Status</span>; it must show <em>“RUNNING on 127.0.0.1:9876”</em>.</li>
+</ol>
+<h3>Backup way – install manually</h3>
+<p>SketchUp → <span class="menu">Extensions → Extension Manager</span> (SketchUp 2017–2020: <span class="menu">Window → Extension Manager</span>) → <span class="menu">Install Extension</span> → select <span class="path">02_SKETCHUP_PLUGIN_BACKUP\su_mcp.rbz</span> → confirm → restart SketchUp.</p>
+<div class="box warn"><strong>If the plugin does not run / SketchUp says the extension is unverified</strong>This plugin is not digitally signed. In Extension Manager → the gear icon (Extension Loading Policy), choose <em>Approve Unidentified Extensions</em> or <em>Unrestricted</em> (not <em>Identified Extensions Only</em>) – as allowed by your IT policy.</div>
+
+<h2><span class="num">3</span>First try (read-only, safe)</h2>
+<p>Open a <strong>copy</strong> of a project file in SketchUp, then ask Claude, one at a time:</p>
+<span class="say">Ping SketchUp</span>
+<span class="say">What is in this model? Summarize the tags, materials and components.</span>
+<span class="say">Take an iso screenshot so I can see it.</span>
+<p><code>ping</code> tells you <strong>which model</strong> Claude is controlling and the plugin version; if there is a <code>warning</code> line, the plugin is outdated – see section 6.</p>
+
+<h2><span class="num">4</span>Working safely</h2>
+<ul>
+  <li><strong>Save a copy</strong> before every working session with Claude.</li>
+  <li>Every change Claude makes to the model is <strong>one Undo step</strong> (<kbd>Ctrl</kbd>+<kbd>Z</kbd>), named <em>“MCP: …”</em> in the Edit menu.</li>
+  <li>Keep Claude in <strong>ask-for-permission</strong> mode. Do not choose <em>“Always allow”</em> for: <code>run_ruby</code>, <code>delete_entities</code>, <code>undo</code>, <code>save_model</code>, <code>open_model</code>, <code>new_model</code>, <code>export_file</code>, <code>export_png</code> (the two export commands can overwrite files).</li>
+  <li><code>run_ruby</code> runs any Ruby code inside SketchUp. If you cannot read and understand the code Claude proposes, deny it and ask Claude to use the built-in tools instead.</li>
+  <li>Claude only controls the <strong>first SketchUp window you open</strong> (the one holding port 9876). A second window you open is not connected.</li>
+  <li>A takeoff on a large model or a heavy <code>run_ruby</code> command can freeze SketchUp for seconds to minutes – please wait. If it stays frozen for too long after a <code>run_ruby</code> command (possibly an infinite loop), close SketchUp with Task Manager; unsaved changes will be lost.</li>
+  <li>The connection only listens on your own computer (<code>127.0.0.1</code>); other machines on the network cannot reach it.</li>
+</ul>
+
+<h2><span class="num">5</span>Example prompts</h2>
+<div class="grid2">
+  <div class="card"><h4>Read &amp; summarize</h4>“List the components and their counts, sorted from most to least.”<br>“Count the D1 doors and the windows in the model.”</div>
+  <div class="card"><h4>Quantity takeoff</h4>“Run a takeoff by tag and make a table of area in m² and volume in m³.”<br>“Only the current selection, grouped by material.”<br><span class="muted">Area is the total of <em>all faces</em> (a solid includes its top, bottom and side faces) – for floor area, say “top faces only”.</span></div>
+  <div class="card"><h4>Modelling</h4>“Create a 120 mm thick slab from the points (0,0), (6000,0), (6000,4000), (0,4000).”<br>“Move the selected objects up 300 mm.”</div>
+  <div class="card"><h4>Materials &amp; tags</h4>“Assign the tag Walls to the selected objects.”<br>“Change the selected material to Tile 600x600 with color #D9D3C9.”</div>
+  <div class="card"><h4>Export &amp; views</h4>“Take a top-view screenshot so I can check.” <span class="muted">(your own view is kept)</span><br>“Export a 1920x1080 iso PNG to the Desktop, named perspective.png.”</div>
+  <div class="card"><h4>Tips</h4>State the units (mm). After each step, ask Claude to “take a screenshot to check”. If something is wrong, say “undo the last step”.</div>
+</div>
+<p class="muted">See the full list in <span class="path">SAMPLE_PROMPTS_EN.txt</span>.</p>
+
+<h2><span class="num">6</span>Troubleshooting</h2>
+<div class="tablewrap"><table>
+  <tr><th>Message (verbatim)</th><th>Cause</th><th>What to do</th></tr>
+  <tr><td><code>Cannot connect to SketchUp at 127.0.0.1:9876</code></td><td>SketchUp is not open, or the plugin is not installed or is stopped.</td><td>Open SketchUp; check <span class="menu">Extensions → SU MCP Bridge → Status</span>; if that menu is missing, repeat step 2.</td></tr>
+  <tr><td><code>SketchUp did not respond within 120s … MAY HAVE ALREADY RUN</code></td><td>A model-editing command is taking a long time (large model) – it may <strong>already have finished</strong>.</td><td><strong>Do not ask Claude to redo it right away.</strong> Check the model; if something was duplicated, press <kbd>Ctrl</kbd>+<kbd>Z</kbd>. Increase the Timeout in <span class="menu">Configure</span>.</td></tr>
+  <tr><td><code>SketchUp did not respond within 120s … This command does not modify the model and can be retried</code></td><td>A read command (e.g. a takeoff on a large model) has not finished yet.</td><td>Increase the Timeout in <span class="menu">Configure</span> <em>first</em>, wait until SketchUp is no longer busy, then ask again.</td></tr>
+  <tr><td><code>Unsupported command</code>, or <code>ping</code> shows a <code>warning</code> line</td><td>The plugin in SketchUp is older than the Claude extension.</td><td>Type “Install SU MCP Bridge in SketchUp”, then fully quit and reopen SketchUp.</td></tr>
+  <tr><td>Status shows <code>Port 9876 is used by another SketchUp window</code></td><td>Two SketchUp windows are open.</td><td>Close the other window, then click <span class="menu">Extensions → SU MCP Bridge → Start server</span>.</td></tr>
+  <tr><td>Status shows <code>Windows does not allow port 9876</code></td><td>The port is in a range reserved by Windows/Hyper-V.</td><td><span class="menu">Extensions → SU MCP Bridge → Change port...</span>, fully quit and reopen SketchUp, then set the same port in Claude: <span class="menu">Settings → Extensions → SketchUp MCP → Configure</span>.</td></tr>
+  <tr><td><code>run_ruby must not call exit/abort</code></td><td>Claude's Ruby code called <code>exit</code>.</td><td>The changes were rolled back. Ask Claude to rewrite the code without <code>exit</code>.</td></tr>
+  <tr><td>Claude does not see the SketchUp tools</td><td>The extension is disabled.</td><td>Claude → <span class="menu">Settings → Extensions → SketchUp MCP</span> → enable it; start a new chat.</td></tr>
+  <tr><td>Every SketchUp tool appears twice</td><td>Another SketchUp MCP server (for example an older <code>"sketchup"</code> Python setup) is still configured in <span class="path">claude_desktop_config.json</span>.</td><td>Remove that entry (Settings → Developer → Edit Config), then restart Claude.</td></tr>
+</table></div>
+
+<h2><span class="num">7</span>Update &amp; uninstall</h2>
+<ul>
+  <li><strong>Update:</strong> install the new .mcpb file over the old one (your settings are kept), then type “Install SU MCP Bridge in SketchUp” and restart SketchUp. Always update <em>both</em> parts, then type “Ping SketchUp” – if there is no <code>warning</code> line, you are done.</li>
+  <li><strong>Uninstall:</strong> Claude → <span class="menu">Settings → Extensions → SketchUp MCP → Uninstall</span>. In SketchUp: Extension Manager → SU MCP Bridge → Uninstall (or delete <span class="path">su_mcp.rb</span> and the <span class="path">su_mcp</span> folder in <span class="path">%APPDATA%\SketchUp\SketchUp 20xx\SketchUp\Plugins</span>).</li>
+</ul>
+
+<h2><span class="num">8</span>Report a problem / feedback</h2>
+<p>Open an issue on the project GitHub repository and include:</p>
+<ol>
+  <li>The result of “Ping SketchUp” (SketchUp, plugin and extension versions).</li>
+  <li>The log file: SketchUp → <span class="menu">Extensions → SU MCP Bridge → Open log file</span> (it records command names, times and errors – no geometry or code – but error messages may contain file or object names: review it and remove anything confidential before posting).</li>
+  <li>A screenshot of the error message and the prompt you gave Claude.</li>
+</ol>
+
+<footer>SketchUp MCP __VERSION__ · Released __DATE__</footer>
+</div></main>
+</body>
+</html>

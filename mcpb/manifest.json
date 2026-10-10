@@ -1,0 +1,177 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/mcpb/main/schemas/mcpb-manifest-v0.3.schema.json",
+  "manifest_version": "0.3",
+  "name": "sketchup-mcp",
+  "display_name": "SketchUp MCP",
+  "version": "1.2.0",
+  "description": "Lets Claude read, take off quantities, model, run Ruby and export images in SketchUp desktop (2017 or later, tested on 2023).",
+  "long_description": "Connects Claude to the open SketchUp model through the **SU MCP Bridge** extension (socket 127.0.0.1:9876).\n\n- No Python or Node.js install needed: runs on the Node.js built into Claude Desktop.\n- First time: ask Claude to run the `install_sketchup_bridge` tool (or install `su_mcp.rbz` via Extension Manager), then restart SketchUp.\n- Units: lengths in mm, areas in m², volumes in m³. Every model edit is one Undo step.\n- If you have a `\"sketchup\"` server (Python version) declared in `claude_desktop_config.json`, remove that entry after installing this extension to avoid duplicate tools.",
+  "author": {
+    "name": "Khuong Doan"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/2ez4gcx/sketchup-mcp"
+  },
+  "homepage": "https://github.com/2ez4gcx/sketchup-mcp",
+  "support": "https://github.com/2ez4gcx/sketchup-mcp/issues",
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.mjs",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/server/index.mjs"
+      ],
+      "env": {
+        "SKETCHUP_MCP_PORT": "${user_config.port}",
+        "SKETCHUP_MCP_TIMEOUT": "${user_config.timeout}"
+      }
+    }
+  },
+  "tools": [
+    {
+      "name": "ping",
+      "description": "Check the connection to SketchUp"
+    },
+    {
+      "name": "model_info",
+      "description": "Overview of the open model"
+    },
+    {
+      "name": "list_tags",
+      "description": "List tags (layers)"
+    },
+    {
+      "name": "list_components",
+      "description": "List components and instance counts"
+    },
+    {
+      "name": "list_materials",
+      "description": "List materials"
+    },
+    {
+      "name": "selection_info",
+      "description": "Info on the selected entities"
+    },
+    {
+      "name": "quantity_takeoff",
+      "description": "Quantity takeoff by tag or material"
+    },
+    {
+      "name": "create_box",
+      "description": "Create a rectangular box"
+    },
+    {
+      "name": "create_shape",
+      "description": "Draw a polygon face, optional pushpull"
+    },
+    {
+      "name": "create_lines",
+      "description": "Draw a polyline"
+    },
+    {
+      "name": "insert_component",
+      "description": "Insert a component from a .skp file or a definition"
+    },
+    {
+      "name": "transform_entities",
+      "description": "Move / rotate / scale"
+    },
+    {
+      "name": "set_material",
+      "description": "Apply a material"
+    },
+    {
+      "name": "set_tag",
+      "description": "Assign a tag"
+    },
+    {
+      "name": "delete_entities",
+      "description": "Delete entities by id"
+    },
+    {
+      "name": "select_entities",
+      "description": "Select entities by id"
+    },
+    {
+      "name": "undo",
+      "description": "Undo the last step"
+    },
+    {
+      "name": "run_ruby",
+      "description": "Run arbitrary Ruby code in SketchUp"
+    },
+    {
+      "name": "set_view",
+      "description": "Set a standard view"
+    },
+    {
+      "name": "screenshot",
+      "description": "Capture the viewport for Claude to see"
+    },
+    {
+      "name": "export_png",
+      "description": "Export the viewport as an image file"
+    },
+    {
+      "name": "export_file",
+      "description": "Export the model to a 3D/2D file"
+    },
+    {
+      "name": "save_model",
+      "description": "Save the model"
+    },
+    {
+      "name": "open_model",
+      "description": "Open a .skp file"
+    },
+    {
+      "name": "new_model",
+      "description": "Create a new model"
+    },
+    {
+      "name": "install_sketchup_bridge",
+      "description": "Install/update the SU MCP Bridge extension in SketchUp"
+    }
+  ],
+  "tools_generated": false,
+  "keywords": [
+    "sketchup",
+    "3d",
+    "architecture",
+    "bim",
+    "quantity-takeoff"
+  ],
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": [
+      "win32",
+      "darwin"
+    ],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  },
+  "user_config": {
+    "port": {
+      "type": "number",
+      "title": "SketchUp bridge port",
+      "description": "TCP port of SU MCP Bridge (default 9876). Change it only if needed; it must also be changed in SketchUp via Extensions > SU MCP Bridge > Change port..., and SketchUp restarted.",
+      "default": 9876,
+      "min": 1024,
+      "max": 65535,
+      "required": false
+    },
+    "timeout": {
+      "type": "number",
+      "title": "Timeout (seconds)",
+      "description": "Maximum number of seconds to wait for SketchUp to answer one command (a quantity takeoff on a large model can take a while).",
+      "default": 120,
+      "min": 5,
+      "max": 3600,
+      "required": false
+    }
+  }
+}

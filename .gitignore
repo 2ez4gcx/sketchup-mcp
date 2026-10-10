@@ -1,0 +1,25 @@
+# Allowlist: this folder also holds private project files (models, drawings, renders, local configs).
+# Everything at the top level is ignored unless listed below - never commit client/project data.
+/*
+!/.gitignore
+!/.gitattributes
+!/.github/
+!/README.md
+!/README.vi.md
+!/LICENSE
+!/CHANGELOG.md
+!/extension/
+!/mcpb/
+
+# Build outputs and dependencies
+mcpb/node_modules/
+mcpb/dist/
+
+# Never track models, drawings or logs anywhere in the tree
+*.skp
+*.skb
+*.dxf
+*.dwg
+*.log
+.DS_Store
+Thumbs.db

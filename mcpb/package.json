@@ -1,0 +1,22 @@
+{
+  "name": "sketchup-mcp",
+  "version": "1.2.0",
+  "private": true,
+  "description": "SketchUp MCP server (Node.js) packaged as a Claude Desktop Extension (.mcpb)",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node scripts/smoke-test.mjs && node scripts/unit-test.mjs",
+    "release": "node scripts/build.mjs && node scripts/unit-test.mjs && node scripts/release.mjs"
+  },
+  "devDependencies": {
+    "@anthropic-ai/mcpb": "2.1.2",
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "esbuild": "0.28.2",
+    "zod": "4.6.5",
+    "fflate": "0.8.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

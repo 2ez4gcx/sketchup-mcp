@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SketchUp MCP – Hướng dẫn sử dụng</title>
+<style>
+  :root {
+    --ink: #1f2328; --muted: #5b6168; --line: #d8d4ce; --paper: #ffffff; --soft: #f6f3ef;
+    --accent: #c51e2d; --accent-soft: #fbeceb; --ok: #2f6f3e; --ok-soft: #e8f3ea; --warn: #8a5a00; --warn-soft: #fdf3dc;
+    --code: #f1efeb;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--soft); color: var(--ink); font: 15px/1.6 "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+  .sheet { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 36px 40px; }
+  header.cover { border-bottom: 3px solid var(--accent); padding-bottom: 18px; margin-bottom: 24px; }
+  header.cover .kicker { color: var(--accent); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; font-size: 12px; }
+  h1 { font-size: 30px; line-height: 1.2; margin: 6px 0 8px; }
+  header.cover p { margin: 0; color: var(--muted); }
+  h2 { font-size: 20px; margin: 34px 0 10px; padding-top: 6px; border-top: 1px solid var(--line); }
+  h2 .num { display: inline-block; min-width: 30px; height: 30px; line-height: 30px; text-align: center; border-radius: 50%; background: var(--accent); color: #fff; font-size: 15px; margin-right: 8px; }
+  h3 { font-size: 16px; margin: 20px 0 6px; }
+  p, li { max-width: 72ch; }
+  ol, ul { padding-left: 22px; }
+  li { margin: 4px 0; }
+  code, kbd, .path { font-family: Consolas, "Cascadia Mono", monospace; font-size: 13.5px; background: var(--code); border-radius: 5px; padding: 1px 6px; overflow-wrap: anywhere; }
+  kbd { border: 1px solid var(--line); border-bottom-width: 2px; background: #fff; }
+  .menu { font-weight: 600; }
+  .box { border-radius: 10px; padding: 12px 16px; margin: 14px 0; border: 1px solid; }
+  .box.ok { background: var(--ok-soft); border-color: #bcd9c3; }
+  .box.warn { background: var(--warn-soft); border-color: #ecd49a; }
+  .box.red { background: var(--accent-soft); border-color: #efc2c0; }
+  .box strong:first-child { display: block; margin-bottom: 2px; }
+  .say { display: block; background: #fff; border: 1px dashed var(--line); border-left: 4px solid var(--accent); border-radius: 6px; padding: 8px 12px; margin: 8px 0; font-style: italic; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 7px 9px; text-align: left; vertical-align: top; }
+  th { background: var(--soft); }
+  .tablewrap { overflow-x: auto; }
+  figure { margin: 16px 0; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption { color: var(--muted); font-size: 13px; text-align: center; margin-top: 4px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+  .card h4 { margin: 0 0 4px; font-size: 14.5px; }
+  .muted { color: var(--muted); }
+  footer { margin-top: 36px; color: var(--muted); font-size: 13px; border-top: 1px solid var(--line); padding-top: 12px; }
+  @media (max-width: 640px) { .sheet { padding: 22px 16px; } .grid2 { grid-template-columns: 1fr; } h1 { font-size: 24px; } }
+  @media print {
+    body { background: #fff; font-size: 12.5px; }
+    main { padding: 0; max-width: none; }
+    .sheet { border: 0; padding: 0; }
+    p, li { max-width: none; }
+    h2 { break-after: avoid; } .box, figure, .card, tr { break-inside: avoid; }
+    footer { margin-top: 18px; }
+    @page { size: A4; margin: 16mm 14mm; }
+  }
+</style>
+</head>
+<body>
+<main><div class="sheet">
+
+<header class="cover">
+  <div class="kicker">Hướng dẫn sử dụng · Phiên bản __VERSION__</div>
+  <h1>SketchUp MCP – Cho Claude làm việc trực tiếp trong SketchUp</h1>
+  <p>Hỏi Claude bằng tiếng Việt để đọc mô hình, bóc khối lượng, dựng hình, gán vật liệu/tag, chụp ảnh và xuất file — ngay trên SketchUp đang mở. <strong>Không cần cài Python hay Node.js.</strong></p>
+</header>
+
+<figure>
+  <svg viewBox="0 0 760 150" role="img" aria-label="Sơ đồ: Claude Desktop, extension SketchUp MCP, SU MCP Bridge trong SketchUp">
+    <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#5b6168"/></marker></defs>
+    <rect x="10" y="30" width="200" height="90" rx="12" fill="#f6f3ef" stroke="#d8d4ce"/>
+    <text x="110" y="68" text-anchor="middle" font-size="16" font-weight="600" fill="#1f2328">Claude Desktop</text>
+    <text x="110" y="92" text-anchor="middle" font-size="12.5" fill="#5b6168">bạn chat bằng tiếng Việt</text>
+    <rect x="280" y="30" width="200" height="90" rx="12" fill="#fbeceb" stroke="#efc2c0"/>
+    <text x="380" y="62" text-anchor="middle" font-size="16" font-weight="600" fill="#1f2328">SketchUp MCP</text>
+    <text x="380" y="84" text-anchor="middle" font-size="12.5" fill="#5b6168">file .mcpb cài vào Claude</text>
+    <text x="380" y="102" text-anchor="middle" font-size="12.5" fill="#5b6168">(chạy bằng Node có sẵn)</text>
+    <rect x="550" y="30" width="200" height="90" rx="12" fill="#e8f3ea" stroke="#bcd9c3"/>
+    <text x="650" y="62" text-anchor="middle" font-size="16" font-weight="600" fill="#1f2328">SketchUp</text>
+    <text x="650" y="84" text-anchor="middle" font-size="12.5" fill="#5b6168">+ plugin SU MCP Bridge</text>
+    <text x="650" y="102" text-anchor="middle" font-size="12.5" fill="#5b6168">(tự bật khi mở SketchUp)</text>
+    <line x1="212" y1="75" x2="276" y2="75" stroke="#5b6168" stroke-width="2" marker-end="url(#a)"/>
+    <line x1="482" y1="75" x2="546" y2="75" stroke="#5b6168" stroke-width="2" marker-end="url(#a)"/>
+    <text x="514" y="66" text-anchor="middle" font-size="11" fill="#5b6168">127.0.0.1</text>
+    <text x="514" y="96" text-anchor="middle" font-size="11" fill="#5b6168">cổng 9876</text>
+  </svg>
+  <figcaption>Hai phần cần cài: extension cho Claude (bước 1) và plugin cho SketchUp (bước 2). Kết nối chỉ nằm trong máy của bạn.</figcaption>
+</figure>
+
+<h2><span class="num">0</span>Cần có gì</h2>
+<ul>
+  <li><strong>Windows 10/11</strong> và <strong>Claude Desktop</strong> bản mới (tải tại <span class="path">claude.ai/download</span>), đã đăng nhập bằng tài khoản Claude của công ty.</li>
+  <li><strong>SketchUp</strong> 2017 trở lên (đã chạy thử thực tế trên <strong>SketchUp 2023</strong>). Mỗi bản SketchUp phải được <em>mở ít nhất 1 lần</em> trước khi cài plugin.</li>
+  <li><strong>Giải nén</strong> file zip nhận được (chuột phải → <span class="menu">Extract All</span>). Trong thư mục giải nén có <span class="path">01_CLAUDE_EXTENSION\sketchup-mcp-__VERSION__.mcpb</span> (cài vào Claude) và <span class="path">02_SKETCHUP_PLUGIN_BACKUP\su_mcp.rbz</span> (dự phòng cho SketchUp).</li>
+</ul>
+<div class="box warn"><strong>Dữ liệu dự án</strong>Khi bạn hỏi, Claude sẽ đọc thông tin mô hình (tên đối tượng, khối lượng, ảnh chụp…) và gửi lên dịch vụ Claude của Anthropic để xử lý. Hãy tuân thủ quy định của công ty với dự án có cam kết bảo mật; khi thử nghiệm nên dùng <strong>bản sao</strong> của file dự án.</div>
+
+<h2><span class="num">1</span>Cài extension vào Claude Desktop</h2>
+<ol>
+  <li>Mở Claude Desktop → bấm tên/ảnh đại diện của bạn → <span class="menu">Settings</span> (hoặc <kbd>Ctrl</kbd>+<kbd>,</kbd>) → mục <span class="menu">Extensions</span>.</li>
+  <li>Kéo thả file <span class="path">sketchup-mcp-__VERSION__.mcpb</span> vào cửa sổ Extensions, <em>hoặc</em> bấm <span class="menu">Advanced settings → Install Extension…</span> rồi chọn file.</li>
+  <li>Xem thông tin extension <strong>SketchUp MCP</strong> → bấm <span class="menu">Install</span>. Claude có thể báo extension <em>chưa được ký (unsigned)</em> — bản này chưa ký số, chỉ cài file lấy từ nguồn phát hành chính thức của dự án, rồi vẫn bấm cài. Extension tự bật sau khi cài.</li>
+</ol>
+<div class="box ok"><strong>Mẹo</strong>Bản Claude cài từ Microsoft Store <em>không</em> mở được khi nhấp đúp file .mcpb — hãy cài qua Settings như trên. Nếu không thấy mục Extensions hoặc nút Install Extension, tổ chức có thể đã chặn tính năng này: liên hệ người phụ trách. Mục <span class="menu">Configure</span> của extension có <em>thời gian chờ</em> (Timeout) mỗi lệnh (mặc định 120 giây) và <em>cổng</em> (mặc định 9876 — không đổi trừ khi được hướng dẫn, vì phải đổi đồng thời trong SketchUp).</div>
+
+<h2><span class="num">2</span>Cài plugin SU MCP Bridge vào SketchUp</h2>
+<h3>Cách nhanh — nhờ Claude cài</h3>
+<ol>
+  <li>Mở một cuộc chat mới trong Claude Desktop và gõ:<span class="say">Cài SU MCP Bridge vào SketchUp</span></li>
+  <li>Claude sẽ xin phép dùng công cụ <code>install_sketchup_bridge</code> → bấm <span class="menu">Allow</span>. Kết quả liệt kê các bản SketchUp đã cài (vd 2023: <code>installed</code>).</li>
+  <li><strong>Thoát hẳn SketchUp rồi mở lại.</strong></li>
+  <li>Kiểm tra: trong SketchUp vào <span class="menu">Extensions → SU MCP Bridge → Status</span>, phải thấy <em>“RUNNING on 127.0.0.1:9876”</em>.</li>
+</ol>
+<h3>Cách dự phòng — cài tay</h3>
+<p>SketchUp → <span class="menu">Extensions → Extension Manager</span> (SketchUp 2017–2020: <span class="menu">Window → Extension Manager</span>) → <span class="menu">Install Extension</span> → chọn <span class="path">02_SKETCHUP_PLUGIN_BACKUP\su_mcp.rbz</span> → đồng ý → khởi động lại SketchUp.</p>
+<div class="box warn"><strong>Nếu plugin không chạy / SketchUp báo extension chưa xác minh</strong>Plugin này chưa được ký số. Trong Extension Manager → biểu tượng bánh răng (Extension Loading Policy) phải chọn <em>Approve Unidentified Extensions</em> hoặc <em>Unrestricted</em> (không chọn <em>Identified Extensions Only</em>) — theo quy định IT của công ty.</div>
+
+<h2><span class="num">3</span>Thử lần đầu (chỉ đọc, an toàn)</h2>
+<p>Mở một <strong>bản sao</strong> của file dự án trong SketchUp, rồi lần lượt hỏi Claude:</p>
+<span class="say">Ping SketchUp</span>
+<span class="say">Mô hình này có gì? Thống kê tag, vật liệu và component.</span>
+<span class="say">Chụp ảnh góc iso cho tôi xem.</span>
+<p><code>ping</code> cho biết Claude đang điều khiển <strong>mô hình nào</strong> và phiên bản plugin; nếu có dòng <code>warning</code> là plugin cũ — xem mục 6.</p>
+
+<h2><span class="num">4</span>Dùng an toàn</h2>
+<ul>
+  <li><strong>Lưu bản sao</strong> trước mỗi buổi làm việc với Claude.</li>
+  <li>Mỗi lần Claude sửa mô hình là <strong>một bước Undo</strong> (<kbd>Ctrl</kbd>+<kbd>Z</kbd>), tên bắt đầu bằng <em>“MCP: …”</em> trong menu Edit.</li>
+  <li>Giữ chế độ <strong>hỏi xin phép</strong>. Không chọn <em>“Always allow”</em> cho: <code>run_ruby</code>, <code>delete_entities</code>, <code>undo</code>, <code>save_model</code>, <code>open_model</code>, <code>new_model</code>, <code>export_file</code>, <code>export_png</code> (hai lệnh xuất có thể ghi đè file).</li>
+  <li><code>run_ruby</code> chạy code Ruby bất kỳ trong SketchUp. Nếu không đọc hiểu được đoạn code Claude đề xuất, hãy từ chối và yêu cầu Claude dùng các công cụ có sẵn.</li>
+  <li>Claude chỉ điều khiển <strong>cửa sổ SketchUp mở đầu tiên</strong> (giữ cổng 9876). Mở thêm cửa sổ thứ hai thì cửa sổ đó không kết nối.</li>
+  <li>Bóc khối lượng mô hình lớn hoặc lệnh <code>run_ruby</code> nặng có thể làm SketchUp đứng vài giây đến vài phút — hãy chờ. Nếu đứng quá lâu sau một lệnh <code>run_ruby</code> (có thể do vòng lặp vô hạn), đóng SketchUp bằng Task Manager; thay đổi chưa lưu sẽ mất.</li>
+  <li>Kết nối chỉ nghe trong máy (<code>127.0.0.1</code>), máy khác trong mạng không truy cập được.</li>
+</ul>
+
+<h2><span class="num">5</span>Ví dụ câu lệnh</h2>
+<div class="grid2">
+  <div class="card"><h4>Đọc &amp; thống kê</h4>“Liệt kê các component và số lượng, sắp xếp giảm dần.”<br>“Đếm số cửa D1 và cửa sổ trong mô hình.”</div>
+  <div class="card"><h4>Bóc khối lượng</h4>“Bóc khối lượng theo tag, lập bảng diện tích m² và thể tích m³.”<br>“Chỉ tính phần đang chọn, gom theo vật liệu.”<br><span class="muted">Diện tích là tổng <em>mọi mặt</em> (khối đặc gồm mặt trên, dưới, cạnh) — muốn diện tích sàn hãy nói rõ “chỉ tính mặt trên”.</span></div>
+  <div class="card"><h4>Dựng hình</h4>“Tạo sàn dày 120 mm từ các điểm (0,0), (6000,0), (6000,4000), (0,4000).”<br>“Dời các đối tượng đang chọn lên 300 mm.”</div>
+  <div class="card"><h4>Vật liệu &amp; tag</h4>“Gán tag Tường cho các đối tượng đang chọn.”<br>“Đổi vật liệu đang chọn sang Gạch 600x600 màu #D9D3C9.”</div>
+  <div class="card"><h4>Xuất &amp; góc nhìn</h4>“Chụp ảnh góc trên cho tôi kiểm tra.” <span class="muted">(góc nhìn của bạn được giữ nguyên)</span><br>“Xuất ảnh PNG 1920x1080 góc iso ra Desktop, tên phoi_canh.png.”</div>
+  <div class="card"><h4>Mẹo</h4>Nói rõ đơn vị (mm). Sau mỗi bước, nhờ Claude “chụp ảnh kiểm tra”. Sai thì bảo “undo bước vừa rồi”.</div>
+</div>
+<p class="muted">Xem thêm danh sách đầy đủ trong <span class="path">CAU_LENH_MAU.txt</span>.</p>
+
+<h2><span class="num">6</span>Xử lý lỗi thường gặp</h2>
+<div class="tablewrap"><table>
+  <tr><th>Thông báo (nguyên văn)</th><th>Nguyên nhân</th><th>Cách xử lý</th></tr>
+  <tr><td><code>Cannot connect to SketchUp at 127.0.0.1:9876</code></td><td>SketchUp chưa mở, plugin chưa cài hoặc đang tắt.</td><td>Mở SketchUp; xem <span class="menu">Extensions → SU MCP Bridge → Status</span>; chưa có menu thì làm lại bước 2.</td></tr>
+  <tr><td><code>SketchUp did not respond within 120s … MAY HAVE ALREADY RUN</code></td><td>Lệnh sửa mô hình chạy lâu (mô hình lớn) — lệnh có thể <strong>đã chạy xong</strong>.</td><td><strong>Đừng yêu cầu làm lại ngay.</strong> Kiểm tra mô hình; bị trùng thì <kbd>Ctrl</kbd>+<kbd>Z</kbd>. Tăng thời gian chờ (Timeout) trong <span class="menu">Configure</span>.</td></tr>
+  <tr><td><code>SketchUp did not respond within 120s … This command does not modify the model and can be retried</code></td><td>Lệnh đọc (vd bóc khối lượng mô hình lớn) chưa xong.</td><td>Tăng thời gian chờ (Timeout) trong <span class="menu">Configure</span> <em>trước</em>, đợi SketchUp hết bận rồi mới hỏi lại.</td></tr>
+  <tr><td><code>Unsupported command</code> hoặc <code>ping</code> có dòng <code>warning</code></td><td>Plugin trong SketchUp cũ hơn extension.</td><td>Gõ “Cài SU MCP Bridge vào SketchUp”, rồi thoát hẳn và mở lại SketchUp.</td></tr>
+  <tr><td>Status báo <code>Port 9876 is used by another SketchUp window</code></td><td>Đang mở 2 cửa sổ SketchUp.</td><td>Đóng cửa sổ kia, rồi bấm <span class="menu">Extensions → SU MCP Bridge → Start server</span>.</td></tr>
+  <tr><td>Status báo <code>Windows does not allow port 9876</code></td><td>Cổng nằm trong dải Windows/Hyper-V giữ riêng.</td><td><span class="menu">Extensions → SU MCP Bridge → Change port...</span>, thoát hẳn và mở lại SketchUp, rồi đặt cùng cổng trong Claude: <span class="menu">Settings → Extensions → SketchUp MCP → Configure</span>.</td></tr>
+  <tr><td><code>run_ruby must not call exit/abort</code></td><td>Code Ruby của Claude gọi <code>exit</code>.</td><td>Thay đổi đã được hủy. Yêu cầu Claude viết lại không dùng <code>exit</code>.</td></tr>
+  <tr><td>Claude không thấy công cụ SketchUp</td><td>Extension đang tắt.</td><td>Claude → <span class="menu">Settings → Extensions → SketchUp MCP</span> → bật; mở chat mới.</td></tr>
+  <tr><td>Mỗi công cụ SketchUp xuất hiện 2 lần</td><td>Máy đã có cấu hình cũ <code>"sketchup"</code> (bản Python) trong <span class="path">claude_desktop_config.json</span>.</td><td>Xóa mục đó (Settings → Developer → Edit Config) rồi khởi động lại Claude.</td></tr>
+</table></div>
+
+<h2><span class="num">7</span>Cập nhật &amp; gỡ cài đặt</h2>
+<ul>
+  <li><strong>Cập nhật:</strong> cài file .mcpb mới đè lên (thiết lập được giữ), rồi gõ “Cài SU MCP Bridge vào SketchUp” và khởi động lại SketchUp. Luôn cập nhật <em>cả hai</em> phần, sau đó gõ “Ping SketchUp” — không có dòng <code>warning</code> là xong.</li>
+  <li><strong>Gỡ:</strong> Claude → <span class="menu">Settings → Extensions → SketchUp MCP → Uninstall</span>. Trong SketchUp: Extension Manager → SU MCP Bridge → Uninstall (hoặc xóa <span class="path">su_mcp.rb</span> và thư mục <span class="path">su_mcp</span> trong <span class="path">%APPDATA%\SketchUp\SketchUp 20xx\SketchUp\Plugins</span>).</li>
+</ul>
+
+<h2><span class="num">8</span>Báo lỗi / góp ý</h2>
+<p>Gửi cho người phụ trách (<strong>Khuong Doan</strong>), hoặc mở một issue trên repository GitHub của dự án, kèm:</p>
+<ol>
+  <li>Kết quả lệnh “Ping SketchUp” (phiên bản SketchUp, plugin, extension).</li>
+  <li>File log: SketchUp → <span class="menu">Extensions → SU MCP Bridge → Open log file</span> (ghi tên lệnh, thời gian, lỗi; không ghi hình học hay code — nhưng thông báo lỗi có thể có tên file/đối tượng, hãy xem lại trước khi gửi).</li>
+  <li>Ảnh chụp màn hình thông báo lỗi và câu bạn đã hỏi Claude.</li>
+</ol>
+
+<footer>SketchUp MCP __VERSION__ · Ngày phát hành __DATE__</footer>
+</div></main>
+</body>
+</html>

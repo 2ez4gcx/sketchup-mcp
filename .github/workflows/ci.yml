@@ -1,0 +1,32 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    # Windows: install_sketchup_bridge tests use %APPDATA%-style paths.
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: mcpb
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mcpb/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: node scripts/unit-test.mjs
+      - run: node scripts/smoke-test.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sketchup-mcp-build
+          path: |
+            mcpb/dist/*.mcpb
+            mcpb/dist/*.rbz
+            mcpb/dist/THIRD_PARTY_NOTICES.txt

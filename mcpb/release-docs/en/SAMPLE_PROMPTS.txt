@@ -1,0 +1,58 @@
+SKETCHUP MCP - SAMPLE PROMPTS (copy into a Claude Desktop chat)
+================================================================
+ABOUT THESE PROMPTS: the wording does NOT have to be exact. Claude understands natural language in any
+language (English, Vietnamese, ...), so rephrase freely or mix languages. Only these need to be precise:
+  - numbers and units (say mm; areas in m2, volumes in m3, angles in degrees),
+  - object names (tags, materials, components) exactly as they are spelled in the model,
+  - file paths (e.g. D:/Export/perspective.png),
+  - your intent for risky actions (delete, save/overwrite, run_ruby): say clearly what may and may not change.
+Tip: select the objects in SketchUp first, then say "the selected ..." (e.g. "move the selected objects up 300 mm").
+
+General tips: state the units (mm); after each edit, ask Claude to "take a screenshot to check";
+if something is wrong, say "undo the last step".
+
+CONNECTION CHECK
+- Ping SketchUp
+- Install SU MCP Bridge in SketchUp             (first time, or when ping says the plugin is outdated)
+  -> Then fully quit and reopen SketchUp: Extensions > SU MCP Bridge > Status must show "RUNNING on 127.0.0.1:9876".
+
+READ & STATISTICS (safe, does not modify the model)
+- What is in this model? Summarize the tags, materials and components.
+- List the components and their counts, sorted from most to least.
+- Count the D1 doors, the W1 windows and the chairs in the model.
+- What are the objects I have selected, and how big is their bounding box in mm?
+- Which tags are hidden? Which materials have a texture?
+
+QUANTITY TAKEOFF
+- Run a quantity takeoff by tag and make a table of area (m2) and volume (m3).
+- Run a quantity takeoff by material, only for the selected objects.
+- Calculate the TOP-face area of the slabs on tag "Floor" (the real floor area).   (Claude will use run_ruby)
+  -> Note: face_area_m2 in the takeoff is the total area of ALL faces (a solid includes its top, bottom and
+     side faces), so it is NOT floor area. Volume is only computed for groups/components that are solids.
+
+MODELLING
+- Create a 2000 x 1000 x 750 mm box at the origin, named "Box table", material "Oak" with color #B3A092.
+- Create a 120 mm thick slab from the points (0,0), (6000,0), (6000,4000), (0,4000), tag "Floor".
+- Draw an outline through the points (0,0), (3000,0), (3000,2000), (0,2000) and make a face.   (the result reports face_created)
+- Insert the component "Office chair" that is already in the model at (1500, 800, 0), rotated 90 degrees.
+- Move the selected objects up 300 mm along the Z axis.
+- Rotate the selected object 45 degrees about its center.
+  -> To check: read bounds_mm in the result, or ask for a "top-view screenshot".
+
+MATERIALS & TAGS
+- Assign the tag "Walls" to the selected objects.
+- Change the material of the selected objects to "Tile 600x600" with color #D9D3C9.
+- Select one object that uses the material "Wall paint", then: change the color of that material to #F4F0EB for the whole model.
+  (Claude uses update_existing; an existing material is NOT recolored unless you ask for it clearly)
+
+VIEWS, IMAGES & FILES
+- Take an iso / top / front screenshot so I can see it.   (your own view is restored after the capture)
+- Set the front view with parallel projection.
+- Export a 1920x1080 iso PNG to the Desktop, named perspective.png.     (missing folders are created)
+- Export the model to the Desktop as floor_plan.dwg.                     (some formats require SketchUp Pro)
+- Save the model.                                                         (careful: overwrites the current file)
+
+ADVANCED (Claude will use run_ruby - read the code carefully before you allow it)
+- Rename every component whose name contains "Chair" to "Seat".
+- List the faces with no material on tag "Walls".
+  -> The whole run_ruby snippet is one Undo step: if the result is wrong, say "undo the last step".

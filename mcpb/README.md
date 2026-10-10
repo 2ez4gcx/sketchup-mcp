@@ -44,7 +44,7 @@ Units: lengths in mm, areas in m², volumes in m³, angles in degrees; Z is up. 
 
 ## Prerequisites
 
-- **Node.js 18 or later** (CI uses Node 20) and npm.
+- **Node.js 18 or later** (CI uses Node 22) and npm.
 - `npm install` (or `npm ci`) in this folder. All dependencies are dev dependencies: esbuild bundles everything into one
   file, so the `.mcpb` contains no `node_modules`.
 - SketchUp is **not** needed to build or test. Only `smoke-test.mjs --live` talks to a real SketchUp.

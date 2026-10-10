@@ -42,6 +42,7 @@ fs.copyFileSync(rbz, path.join(OUT, DIR_RBZ, 'su_mcp.rbz'));
 fs.copyFileSync(promptsEn, path.join(OUT, 'SAMPLE_PROMPTS_EN.txt'));
 fs.copyFileSync(promptsVi, path.join(OUT, DIR_VI, 'CAU_LENH_MAU.txt'));
 fs.copyFileSync(notices, path.join(OUT, 'THIRD_PARTY_NOTICES.txt'));
+fs.copyFileSync(path.join(ROOT, '..', 'LICENSE'), path.join(OUT, 'LICENSE.txt'));
 
 // Guides: fill in __VERSION__ / __DATE__, write the .html, then print it to .pdf.
 const writeGuide = (src, rel) => {
@@ -108,6 +109,8 @@ fs.writeFileSync(path.join(OUT, 'CHANGELOG.txt'), [
   '  - Sample prompt files explain that the wording does not have to be exact: Claude understands natural language in any',
   '    language; only numbers/units, object names, file paths and risky actions need to be precise.',
   `  - Release package: English folder names (${DIR_EXT}, ${DIR_RBZ}); CHANGELOG.txt replaces PHIEN_BAN.txt.`,
+  '  - Released under the MIT License (LICENSE.txt, also inside the .mcpb).',
+  '  - Tested on SketchUp 2021 and 2023 (Windows).',
   '',
   '1.1.0 (changes since 1.0.0)',
   '  - Errors in run_ruby (including exit and infinite recursion) are reported immediately instead of after 120 s,',
@@ -130,7 +133,7 @@ fs.writeFileSync(path.join(OUT, 'CHANGELOG.txt'), [
   "    to Anthropic's Claude service for processing. Follow your organization's rules for confidential projects and test on",
   '    a copy of the project file.',
   '',
-  'Third-party libraries: see THIRD_PARTY_NOTICES.txt.',
+  'License: MIT (see LICENSE.txt). Third-party libraries: see THIRD_PARTY_NOTICES.txt.',
   '',
 ].join('\r\n'));
 

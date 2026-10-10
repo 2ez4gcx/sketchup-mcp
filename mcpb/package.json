@@ -3,6 +3,7 @@
   "version": "1.2.0",
   "private": true,
   "description": "SketchUp MCP server (Node.js) packaged as a Claude Desktop Extension (.mcpb)",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",

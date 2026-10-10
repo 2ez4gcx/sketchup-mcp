@@ -63,6 +63,7 @@ if (!fs.existsSync(path.join(ROOT, 'icon.png'))) {
 write('manifest.json', fs.readFileSync(path.join(ROOT, 'manifest.json')));
 write('icon.png', fs.readFileSync(path.join(ROOT, 'icon.png')));
 write('server/THIRD_PARTY_NOTICES.txt', NOTICES);
+write('LICENSE', fs.readFileSync(path.join(REPO, 'LICENSE')));
 fs.writeFileSync(path.join(DIST, 'THIRD_PARTY_NOTICES.txt'), NOTICES);
 write('bridge/su_mcp.rb', loaderRb);
 write('bridge/su_mcp/main.rb', mainRb);

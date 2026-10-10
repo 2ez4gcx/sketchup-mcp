@@ -4,7 +4,7 @@
   "name": "sketchup-mcp",
   "display_name": "SketchUp MCP",
   "version": "1.2.0",
-  "description": "Lets Claude read, take off quantities, model, run Ruby and export images in SketchUp desktop (2017 or later, tested on 2023).",
+  "description": "Lets Claude read, take off quantities, model, run Ruby and export images in SketchUp desktop (2017 or later, tested on 2021 and 2023).",
   "long_description": "Connects Claude to the open SketchUp model through the **SU MCP Bridge** extension (socket 127.0.0.1:9876).\n\n- No Python or Node.js install needed: runs on the Node.js built into Claude Desktop.\n- First time: ask Claude to run the `install_sketchup_bridge` tool (or install `su_mcp.rbz` via Extension Manager), then restart SketchUp.\n- Units: lengths in mm, areas in m², volumes in m³. Every model edit is one Undo step.\n- If you have a `\"sketchup\"` server (Python version) declared in `claude_desktop_config.json`, remove that entry after installing this extension to avoid duplicate tools.",
   "author": {
     "name": "Khuong Doan"
@@ -144,6 +144,7 @@
     "bim",
     "quantity-takeoff"
   ],
+  "license": "MIT",
   "compatibility": {
     "claude_desktop": ">=0.10.0",
     "platforms": [

@@ -47,7 +47,7 @@ the open SketchUp model
 ## Requirements
 
 - **Claude Desktop** with Extensions support (0.10.0 or later), signed in to a Claude account.
-- **SketchUp 2017 or later** (desktop). Tested on SketchUp 2023. Each SketchUp version must have been opened at least once before you install the bridge.
+- **SketchUp 2017 or later** (desktop). Tested on SketchUp 2021 and 2023. Each SketchUp version must have been opened at least once before you install the bridge.
 - **Windows 10/11**: tested. **macOS**: untested (the extension is packaged for macOS and the installer knows the macOS Plugins folder, but it has not been tried on a Mac).
 - To build from source only: Node.js 18 or later and npm.
 
@@ -130,4 +130,4 @@ SketchUp is a trademark of Trimble Inc. Claude is a trademark of Anthropic. This
 
 ## License
 
-License: to be decided before the public release.
+Released under the [MIT License](LICENSE). Copyright (c) 2026 Khuong Doan.

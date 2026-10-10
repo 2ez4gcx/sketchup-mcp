@@ -44,7 +44,7 @@ mô hình SketchUp đang mở
 ## Yêu cầu
 
 - **Claude Desktop** có mục Extensions (0.10.0 trở lên), đã đăng nhập tài khoản Claude.
-- **SketchUp 2017 trở lên** (bản desktop), đã chạy thử trên SketchUp 2023. Mỗi bản SketchUp phải được mở ít nhất 1 lần trước khi cài plugin.
+- **SketchUp 2017 trở lên** (bản desktop), đã chạy thử trên SketchUp 2021 và 2023. Mỗi bản SketchUp phải được mở ít nhất 1 lần trước khi cài plugin.
 - **Windows 10/11**: đã chạy thử. **macOS**: chưa chạy thử.
 - Chỉ khi build từ mã nguồn: Node.js 18 trở lên và npm.
 
@@ -106,4 +106,4 @@ Một số ý tưởng tham khảo từ [zinin/sketchup-mcp2](https://github.com
 
 ## Giấy phép
 
-License: to be decided before the public release. (Giấy phép sẽ được quyết định trước khi công khai dự án.)
+Phát hành theo [giấy phép MIT](LICENSE). Copyright (c) 2026 Khuong Doan.

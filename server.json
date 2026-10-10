@@ -1,0 +1,47 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.2ez4gcx/sketchup-mcp",
+  "title": "SketchUp MCP",
+  "description": "Let AI assistants work in SketchUp: quantity takeoff, modeling, materials, screenshots, Ruby.",
+  "version": "1.2.0",
+  "websiteUrl": "https://github.com/2ez4gcx/sketchup-mcp",
+  "repository": {
+    "url": "https://github.com/2ez4gcx/sketchup-mcp",
+    "source": "github",
+    "id": "1412811898"
+  },
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/2ez4gcx/sketchup-mcp/v1.2.0/mcpb/icon.png",
+      "mimeType": "image/png",
+      "sizes": ["512x512"]
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/2ez4gcx/sketchup-mcp/releases/download/v1.2.0/sketchup-mcp-1.2.0.mcpb",
+      "version": "1.2.0",
+      "fileSha256": "be6864a1f18bea06655be40e8a259f24a2457ba6c1300c13ed287dd11f6df234",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "SKETCHUP_MCP_PORT",
+          "description": "TCP port of the SU MCP Bridge extension in SketchUp (must match the port set in SketchUp)",
+          "format": "number",
+          "default": "9876",
+          "isRequired": false
+        },
+        {
+          "name": "SKETCHUP_MCP_TIMEOUT",
+          "description": "Seconds to wait for SketchUp to answer one command",
+          "format": "number",
+          "default": "120",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

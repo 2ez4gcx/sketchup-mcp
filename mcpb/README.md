@@ -177,6 +177,14 @@ To ship a new version:
 4. Commit, tag (`git tag -a v<v>`), push, and create a GitHub Release with `sketchup-mcp-<v>.mcpb`, `su_mcp-<v>.rbz`,
    the zip and the English guide PDF as assets. Users install the new `.mcpb` over the old one (their settings are kept),
    then type "Install SU MCP Bridge in SketchUp" in a chat and fully quit and reopen SketchUp.
+5. Update `../server.json` for the official [MCP Registry](https://registry.modelcontextprotocol.io): `version`,
+   `packages[0].version`, `packages[0].identifier` (the release URL of the new `.mcpb`), `packages[0].fileSha256`
+   (`sha256sum` of that `.mcpb`, or the asset digest shown by `gh release view v<v> --json assets`) and the tag in
+   `icons[0].src`. Commit and push, then run the **publish-mcp-registry** workflow (*Actions > publish-mcp-registry >
+   Run workflow*, or `gh workflow run publish-mcp-registry.yml`). It checks the version and the SHA-256 against the
+   release asset, then logs in with GitHub OIDC (no token or secret needed) and publishes. A published registry
+   version can never be changed, and the release asset must never be replaced afterwards, or clients reject the
+   install because the hash no longer matches.
 
 **Never change `name` (`sketchup-mcp`) or `author.name` in `manifest.json` between releases.** Claude Desktop uses
 these two values as the install id of the extension: if either changes, the new build is installed as a second,

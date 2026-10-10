@@ -137,7 +137,10 @@ Phiên bản phải trùng ở 4 chỗ (`mcpb/package.json`, `mcpb/manifest.json
 
 - `extension/`: bridge Ruby (SU MCP Bridge): `su_mcp.rb` (loader), `su_mcp/main.rb` (server TCP, lệnh, menu, log).
 - `mcpb/`: MCP server Node.js đóng gói thành extension Claude Desktop: `src/index.mjs`, `manifest.json`, `scripts/` (build, test, release), `release-docs/en` và `release-docs/vi` (hướng dẫn và câu lệnh mẫu).
+- `docs/images/`: ảnh minh họa cho README (ảnh chính, GIF demo, ảnh xem trước khi chia sẻ link).
+- `server.json`: thông tin đăng ký trên MCP Registry chính thức.
 - `.github/workflows/ci.yml`: build và test trên Windows.
+- `.github/workflows/publish-mcp-registry.yml`: publish `server.json` lên MCP Registry (chạy thủ công).
 
 ## Ghi công
 

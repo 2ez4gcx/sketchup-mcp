@@ -285,7 +285,10 @@ mcpb/                        Node.js MCP server packaged as a Claude Desktop ext
   scripts/                   build.mjs, unit-test.mjs, smoke-test.mjs, release.mjs, versions.mjs, make-icon.mjs
   release-docs/en/           GUIDE.html, SAMPLE_PROMPTS.txt (English)
   release-docs/vi/           HUONG_DAN_SU_DUNG.html, CAU_LENH_MAU.txt (Vietnamese)
+docs/images/                 README images (hero, demo GIF, social preview)
+server.json                  entry for the official MCP Registry
 .github/workflows/ci.yml     build + tests on Windows
+.github/workflows/publish-mcp-registry.yml   publishes server.json to the MCP Registry (run by hand)
 ```
 
 ## Credits

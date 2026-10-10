@@ -1,0 +1,52 @@
+name: publish-mcp-registry
+
+# Publishes server.json to the official MCP Registry (registry.modelcontextprotocol.io).
+# Run it by hand (Actions > publish-mcp-registry > Run workflow) AFTER the GitHub Release for the
+# version in server.json exists: server.json points at that release's .mcpb asset and its SHA-256.
+# A published version can never be changed, so each release needs a new version in server.json
+# (version, packages[0].version, packages[0].identifier, packages[0].fileSha256, icons[0].src tag).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # GitHub OIDC login: the registry grants the io.github.<owner>/* namespace
+    env:
+      PUBLISHER_VERSION: 1.8.1
+      PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check server.json against package.json and the release asset
+        run: |
+          set -euo pipefail
+          v=$(jq -r .version server.json)
+          test "$(jq -r .version mcpb/package.json)" = "$v" || { echo "server.json version $v does not match mcpb/package.json"; exit 1; }
+          test "$(jq -r '.packages[0].version' server.json)" = "$v" || { echo "packages[0].version does not match $v"; exit 1; }
+          url=$(jq -r '.packages[0].identifier' server.json)
+          case "$url" in
+            */releases/download/v$v/*) ;;
+            *) echo "packages[0].identifier does not point at release v$v"; exit 1 ;;
+          esac
+          curl -fsSL -o "$RUNNER_TEMP/bundle.mcpb" "$url"
+          echo "$(jq -r '.packages[0].fileSha256' server.json)  $RUNNER_TEMP/bundle.mcpb" | sha256sum -c -
+
+      - name: Install mcp-publisher (pinned, checksum-verified)
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/mcp-publisher.tar.gz" \
+            "https://github.com/modelcontextprotocol/registry/releases/download/v${PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${PUBLISHER_SHA256}  $RUNNER_TEMP/mcp-publisher.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/mcp-publisher.tar.gz" -C "$RUNNER_TEMP" mcp-publisher
+
+      - run: '"$RUNNER_TEMP/mcp-publisher" validate server.json'
+      - run: '"$RUNNER_TEMP/mcp-publisher" login github-oidc'
+      - run: '"$RUNNER_TEMP/mcp-publisher" publish server.json'

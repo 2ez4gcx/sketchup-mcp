@@ -86,6 +86,7 @@ dist/
   bundle/                        <- staging folder = contents of the .mcpb:
     manifest.json
     icon.png
+    LICENSE
     server/index.mjs
     server/THIRD_PARTY_NOTICES.txt
     bridge/su_mcp.rb
@@ -93,8 +94,8 @@ dist/
     bridge/su_mcp.rbz
 ```
 
-The `.rbz` is always rebuilt from `../extension/`; never edit an `.rbz` by hand. Any other `su_mcp.rbz` lying around
-(for example an older one at the repository root) is not used.
+The `.rbz` is always rebuilt from `../extension/`; never edit an `.rbz` by hand. When the server runs from source
+(`src/index.mjs`), `install_sketchup_bridge` reads the bridge files from `../extension/`.
 
 ### `npm test`
 
@@ -130,7 +131,7 @@ model rather than a confidential project.
 ### `npm run release` (`scripts/release.mjs`)
 
 Runs the build and the unit tests, then creates the release folder (deleted and recreated on every run) and a zip
-with the same name. It takes files only from `dist/` and `release-docs/`, and stops if any of them is missing.
+with the same name. It takes files only from `dist/`, `release-docs/` and `../LICENSE`, and stops if any of them is missing.
 
 ```
 ../release/SketchUpMCP_v<v>/
@@ -142,6 +143,7 @@ with the same name. It takes files only from `dist/` and `release-docs/`, and st
   vi/CAU_LENH_MAU.txt                    <- from release-docs/vi/CAU_LENH_MAU.txt
   CHANGELOG.txt                          <- generated; the text lives in scripts/release.mjs
   THIRD_PARTY_NOTICES.txt
+  LICENSE.txt                            <- from ../LICENSE
   SHA256SUMS.txt                         <- SHA-256 of every other file in the folder
 ../release/SketchUpMCP_v<v>.zip
 ```
@@ -172,7 +174,8 @@ To ship a new version:
 2. Add the new entry to the CHANGELOG text in `scripts/release.mjs`, and update `release-docs/en` and
    `release-docs/vi` if the UI or the behaviour changed.
 3. `npm run release` (optionally followed by `node scripts/smoke-test.mjs --live` against a test model).
-4. Share `../release/SketchUpMCP_v<v>.zip`. Users install the new `.mcpb` over the old one (their settings are kept),
+4. Commit, tag (`git tag -a v<v>`), push, and create a GitHub Release with `sketchup-mcp-<v>.mcpb`, `su_mcp-<v>.rbz`,
+   the zip and the English guide PDF as assets. Users install the new `.mcpb` over the old one (their settings are kept),
    then type "Install SU MCP Bridge in SketchUp" in a chat and fully quit and reopen SketchUp.
 
 **Never change `name` (`sketchup-mcp`) or `author.name` in `manifest.json` between releases.** Claude Desktop uses
@@ -229,7 +232,7 @@ inside a `do ... end` block without `begin`.
 
 ## Continuous integration
 
-`../.github/workflows/ci.yml` runs on `windows-latest` with Node 20: `npm ci`, `npm run build`, the unit tests and the
+`../.github/workflows/ci.yml` runs on `windows-latest` with Node 22 and a read-only token (`permissions: contents: read`): `npm ci`, `npm run build`, the unit tests and the
 smoke test, then uploads `dist/*.mcpb`, `dist/*.rbz` and `dist/THIRD_PARTY_NOTICES.txt` as a build artifact.
 
 ## Credits

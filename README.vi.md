@@ -43,10 +43,21 @@ mô hình SketchUp đang mở
 
 ## Yêu cầu
 
-- **Claude Desktop** có mục Extensions (0.10.0 trở lên), đã đăng nhập tài khoản Claude.
+- **Claude Desktop** (bản hiện hành, có mục *Settings > Extensions*), đã đăng nhập tài khoản Claude.
 - **SketchUp 2017 trở lên** (bản desktop), đã chạy thử trên SketchUp 2021 và 2023. Mỗi bản SketchUp phải được mở ít nhất 1 lần trước khi cài plugin.
 - **Windows 10/11**: đã chạy thử. **macOS**: chưa chạy thử.
 - Chỉ khi build từ mã nguồn: Node.js 18 trở lên và npm.
+
+## Tải về
+
+Tải từ [bản phát hành mới nhất](https://github.com/2ez4gcx/sketchup-mcp/releases/latest):
+
+| File | Là gì |
+|---|---|
+| `sketchup-mcp-1.2.0.mcpb` | Extension cho Claude Desktop (file chính) |
+| `su_mcp-1.2.0.rbz` | Plugin SketchUp (SU MCP Bridge), chỉ cần khi cài tay |
+| `SketchUpMCP_v1.2.0.zip` | Trọn bộ: extension, plugin, hướng dẫn (HTML + PDF, tiếng Anh và tiếng Việt), câu lệnh mẫu, changelog, giấy phép |
+| `SketchUp-MCP-Guide-1.2.0.pdf` | Riêng hướng dẫn tiếng Anh |
 
 ## Cài đặt
 
@@ -56,13 +67,13 @@ mô hình SketchUp đang mở
 
 Tùy chọn trong *Settings > Extensions > SketchUp MCP > Configure*: cổng (mặc định 9876) và thời gian chờ mỗi lệnh (mặc định 120 giây). Đổi cổng thì phải đổi cả trong SketchUp (*Extensions > SU MCP Bridge > Change port...*) và khởi động lại SketchUp. Khi cập nhật, luôn cập nhật **cả hai** phần.
 
-Câu lệnh mẫu: [`mcpb/release-docs/vi/CAU_LENH_MAU.txt`](mcpb/release-docs/vi/CAU_LENH_MAU.txt). Hướng dẫn đầy đủ: [`mcpb/release-docs/vi/HUONG_DAN_SU_DUNG.html`](mcpb/release-docs/vi/HUONG_DAN_SU_DUNG.html).
+Câu lệnh mẫu: [`mcpb/release-docs/vi/CAU_LENH_MAU.txt`](mcpb/release-docs/vi/CAU_LENH_MAU.txt). Hướng dẫn đầy đủ (HTML và PDF) nằm trong file zip của bản phát hành (`vi/HUONG_DAN_SU_DUNG.html` / `.pdf`); mã nguồn: [`mcpb/release-docs/vi/HUONG_DAN_SU_DUNG.html`](mcpb/release-docs/vi/HUONG_DAN_SU_DUNG.html).
 
 ## Ứng dụng AI khác (MCP client)
 
 Cài một chạm bằng file `.mcpb` chỉ có trên Claude Desktop. Server là MCP chuẩn (stdio) nên ứng dụng nào chạy được MCP server trên máy đều dùng được, nhưng cần cài **Node.js 18+**.
 
-1. Giải nén file `.mcpb` (thực chất là file zip): `mkdir C:\Tools\sketchup-mcp` rồi `tar -xf sketchup-mcp-1.2.0.mcpb -C C:\Tools\sketchup-mcp`. Server nằm ở `C:/Tools/sketchup-mcp/server/index.mjs`.
+1. Giải nén file `.mcpb` (thực chất là file zip): `mkdir C:\Tools\sketchup-mcp` rồi `tar -xf sketchup-mcp-1.2.0.mcpb -C C:\Tools\sketchup-mcp` (chạy trong Command Prompt/PowerShell, không dùng Git Bash; hoặc đổi đuôi file thành `.zip` rồi *Extract All*). Server nằm ở `C:/Tools/sketchup-mcp/server/index.mjs`.
 2. Khai báo server trong ứng dụng (lệnh `node`, đối số là đường dẫn trên). Cấu hình mẫu cho từng ứng dụng: xem mục **Other MCP clients** trong [README.md](README.md#other-mcp-clients).
 3. Cài bridge vào SketchUp như bước 2–3 ở trên, rồi khởi động lại SketchUp.
 
@@ -73,7 +84,9 @@ Cài một chạm bằng file `.mcpb` chỉ có trên Claude Desktop. Server là
 | Cursor, VS Code (Copilot), Windsurf/Devin Desktop, Codex CLI, ChatGPT desktop (chế độ Codex), Gemini CLI | Cấu hình theo tài liệu chính thức, chưa test |
 | ChatGPT bản web | **Không hỗ trợ** (chỉ kết nối MCP server từ xa qua internet) |
 
-Screenshot cần model đọc được ảnh. Nếu máy vẫn chạy server Python cũ tên `sketchup`, đặt tên khác cho server này (vd `sketchup-node`) để không bị trùng tool.
+Biến môi trường tùy chọn: `SKETCHUP_MCP_PORT` (mặc định 9876) và `SKETCHUP_MCP_TIMEOUT` (giây mỗi lệnh, mặc định 120); nếu ứng dụng có giới hạn thời gian riêng cho mỗi tool, đặt lớn hơn `SKETCHUP_MCP_TIMEOUT`.
+
+Screenshot cần model đọc được ảnh. Nếu máy đã có một SketchUp MCP server khác tên `sketchup`, đặt tên khác cho server này (vd `sketchup-node`) để không bị trùng tool.
 
 ## Lưu ý an toàn
 
@@ -83,17 +96,18 @@ Screenshot cần model đọc được ảnh. Nếu máy vẫn chạy server Pyt
 - **Mỗi lần sửa là một bước Undo**: sai thì <kbd>Ctrl</kbd>+<kbd>Z</kbd> hoặc nhờ Claude undo.
 - **Làm việc trên bản sao** của file dự án; `save_model` không có đường dẫn sẽ ghi đè file hiện tại.
 - **Dữ liệu mô hình được gửi cho Claude**: khi bạn hỏi, Claude đọc thông tin mô hình (tên đối tượng, khối lượng, ảnh chụp...) và gửi lên dịch vụ Claude của Anthropic để xử lý. Tuân thủ quy định của tổ chức và khách hàng với dự án cần bảo mật.
+- **File log** (*Extensions > SU MCP Bridge > Open log file*) ghi tên lệnh, thời gian và thông báo lỗi, không ghi hình học hay toàn bộ code; nhưng thông báo lỗi có thể trích một phần code `run_ruby`, tên file hoặc tên đối tượng, hãy xem lại trước khi gửi cho người khác.
 
 ## Xử lý lỗi thường gặp
 
-| Thông báo (nguyên văn, phần đầu) | Nguyên nhân | Cách xử lý |
+| Thông báo (trích nguyên văn) | Nguyên nhân | Cách xử lý |
 |---|---|---|
 | `Cannot connect to SketchUp at 127.0.0.1:9876. ...` | SketchUp chưa mở, plugin chưa cài hoặc đang tắt. | Mở SketchUp, xem *Status*; chưa có menu *SU MCP Bridge* thì làm lại bước 2; báo `STOPPED` thì bấm *Start server*. |
-| `SketchUp did not respond within 120s (command '...'). ... MAY HAVE ALREADY RUN` | Lệnh sửa mô hình chạy quá thời gian chờ, có thể đã chạy xong. | Đừng làm lại ngay. Kiểm tra mô hình, bị trùng thì undo. Tăng Timeout trong *Configure*. |
-| `SketchUp did not respond within 120s (command '...'). This command does not modify the model and can be retried` | Lệnh đọc (vd bóc khối lượng mô hình lớn) chưa xong. | Tăng Timeout trong *Configure* trước, đợi SketchUp hết bận rồi hỏi lại. |
+| `SketchUp did not respond within 120s (command '...'). ... MAY HAVE ALREADY RUN` | Lệnh sửa mô hình chạy quá thời gian chờ, có thể đã chạy xong. | Đừng làm lại ngay. Kiểm tra mô hình, bị trùng thì undo (sau `save_model`, `open_model`, `new_model`, `export_*` hoặc chính `undo` thì kiểm tra file/mô hình, đừng undo). Tăng Timeout trong *Configure* (ứng dụng khác: `SKETCHUP_MCP_TIMEOUT`). |
+| `SketchUp did not respond within 120s (command '...'). This command does not modify the model and can be retried` | Lệnh đọc (vd bóc khối lượng mô hình lớn) chưa xong. | Tăng Timeout trước (*Configure*, hoặc `SKETCHUP_MCP_TIMEOUT` ở ứng dụng khác), đợi SketchUp hết bận rồi hỏi lại. |
 | `Unsupported command: ...` hoặc `ping` có dòng `warning` | Plugin trong SketchUp cũ hơn extension. | Chạy lại `install_sketchup_bridge`, thoát hẳn và mở lại SketchUp. |
 | `Port 9876 is used by another SketchUp window (or another program).` | Đang mở 2 cửa sổ SketchUp. | Đóng cửa sổ kia, bấm *Extensions > SU MCP Bridge > Start server*. |
-| `Windows does not allow port 9876 ...` | Cổng nằm trong dải Windows/Hyper-V giữ riêng. | *Extensions > SU MCP Bridge > Change port...*, khởi động lại SketchUp, đặt cùng cổng trong *Configure*. |
+| `Windows does not allow port 9876 ...` | Cổng nằm trong dải Windows/Hyper-V giữ riêng. | *Extensions > SU MCP Bridge > Change port...*, khởi động lại SketchUp, đặt cùng cổng trong *Configure* (ứng dụng khác: `SKETCHUP_MCP_PORT`). |
 | `run_ruby must not call exit/abort (SystemExit) - changes were rolled back` | Code Ruby gọi `exit`/`abort`. | Thay đổi đã được hủy; yêu cầu Claude viết lại không dùng `exit`. |
 | `Command '...' HAS RUN in SketchUp but its result could not be sent ...` | Lệnh đã chạy nhưng không gửi được kết quả. | Đừng chạy lại; nhờ Claude kiểm tra bằng `model_info`/`selection_info`. |
 | `No SketchUp version that has been opened at least once was found on this machine.` | Chưa tìm thấy thư mục người dùng của SketchUp. | Mở SketchUp một lần rồi đóng, sau đó cài lại, hoặc cài tay `su_mcp.rbz`. |
@@ -120,6 +134,8 @@ Phiên bản phải trùng ở 4 chỗ (`mcpb/package.json`, `mcpb/manifest.json
 ## Ghi công
 
 Một số ý tưởng tham khảo từ [zinin/sketchup-mcp2](https://github.com/zinin/sketchup-mcp2) (MIT); không sao chép mã nguồn. Thư viện bên thứ ba đóng gói trong server được liệt kê trong `THIRD_PARTY_NOTICES.txt` (tạo ra khi build).
+
+SketchUp là thương hiệu của Trimble Inc., Claude là thương hiệu của Anthropic. Dự án này không liên kết và không được hai công ty bảo trợ.
 
 ## Giấy phép
 

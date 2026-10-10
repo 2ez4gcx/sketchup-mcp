@@ -7,7 +7,6 @@
 !/README.md
 !/README.vi.md
 !/LICENSE
-!/CHANGELOG.md
 !/extension/
 !/mcpb/
 
@@ -21,5 +20,12 @@ mcpb/dist/
 *.dxf
 *.dwg
 *.log
+.env*
+.npmrc
+*.pem
+*.key
+*.pfx
+.claude/
+.venv/
 .DS_Store
 Thumbs.db

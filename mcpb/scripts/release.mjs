@@ -39,8 +39,10 @@ fs.rmSync(OUT, { recursive: true, force: true });
 for (const d of [DIR_EXT, DIR_RBZ, DIR_VI]) fs.mkdirSync(path.join(OUT, d), { recursive: true });
 fs.copyFileSync(mcpb, path.join(OUT, DIR_EXT, path.basename(mcpb)));
 fs.copyFileSync(rbz, path.join(OUT, DIR_RBZ, 'su_mcp.rbz'));
-fs.copyFileSync(promptsEn, path.join(OUT, 'SAMPLE_PROMPTS_EN.txt'));
-fs.copyFileSync(promptsVi, path.join(OUT, DIR_VI, 'CAU_LENH_MAU.txt'));
+// Plain-text docs get Windows line endings (CRLF) whatever the checkout uses, so builds are identical.
+const copyText = (src, dest) => fs.writeFileSync(dest, fs.readFileSync(src, 'utf8').replace(/\r?\n/g, '\r\n'));
+copyText(promptsEn, path.join(OUT, 'SAMPLE_PROMPTS_EN.txt'));
+copyText(promptsVi, path.join(OUT, DIR_VI, 'CAU_LENH_MAU.txt'));
 fs.copyFileSync(notices, path.join(OUT, 'THIRD_PARTY_NOTICES.txt'));
 fs.copyFileSync(path.join(ROOT, '..', 'LICENSE'), path.join(OUT, 'LICENSE.txt'));
 

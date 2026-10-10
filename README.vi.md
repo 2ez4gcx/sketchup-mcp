@@ -69,7 +69,7 @@ Cài một chạm bằng file `.mcpb` chỉ có trên Claude Desktop. Server là
 | Ứng dụng | Trạng thái |
 |---|---|
 | Claude Desktop | Đã test |
-| Claude Code | Đã test kết nối (`claude mcp list`: Connected) |
+| Claude Code | Đã test (gọi tool, model nhìn thấy ảnh screenshot) |
 | Cursor, VS Code (Copilot), Windsurf/Devin Desktop, Codex CLI, ChatGPT desktop (chế độ Codex), Gemini CLI | Cấu hình theo tài liệu chính thức, chưa test |
 | ChatGPT bản web | **Không hỗ trợ** (chỉ kết nối MCP server từ xa qua internet) |
 

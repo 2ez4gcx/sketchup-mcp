@@ -93,7 +93,7 @@ above `SKETCHUP_MCP_TIMEOUT`.
 | Client | How | Status |
 |---|---|---|
 | Claude Desktop | `.mcpb` extension | Tested |
-| Claude Code | `claude mcp add` | Connection tested (`claude mcp list`: Connected) |
+| Claude Code | `claude mcp add` / `.mcp.json` | Tested (tool calls, screenshot image seen by the model) |
 | Cursor | `mcp.json` | Config from official docs, not tested yet |
 | VS Code (GitHub Copilot agent mode) | `mcp.json` | Config from official docs, not tested yet |
 | Windsurf / Devin Desktop | `mcp_config.json` | Config from official docs, not tested yet |

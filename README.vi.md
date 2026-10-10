@@ -6,7 +6,7 @@
 
 SketchUp MCP cho phép Claude làm việc trực tiếp trên mô hình SketchUp đang mở. Bạn hỏi bằng ngôn ngữ tự nhiên (tiếng Việt, tiếng Anh hay ngôn ngữ nào cũng được), Claude sẽ đọc mô hình, bóc khối lượng theo tag hoặc vật liệu, dựng hình, gán vật liệu và tag, chụp ảnh để tự kiểm tra, xuất ảnh và xuất file. Gồm hai phần: một extension cho Claude Desktop (`.mcpb`, chạy bằng Node.js có sẵn trong Claude Desktop) và một plugin Ruby nhỏ cho SketchUp (**SU MCP Bridge**). Không cần cài Python hay Node.js.
 
-Phiên bản 1.2.0 (menu, thông báo và mô tả công cụ bằng tiếng Anh). Bản đầy đủ và cập nhật nhất của tài liệu này là [README.md](README.md) (tiếng Anh).
+Phiên bản 1.2.0 (menu, thông báo và mô tả công cụ bằng tiếng Anh). Bản đầy đủ và cập nhật nhất của tài liệu này là [README.md](README.md) (tiếng Anh). Dự án có trên [MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.2ez4gcx/sketchup-mcp) chính thức với tên `io.github.2ez4gcx/sketchup-mcp`.
 
 ## Tính năng
 

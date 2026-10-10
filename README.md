@@ -6,7 +6,7 @@
 
 SketchUp MCP lets Claude work directly in the SketchUp model you have open. Ask in plain language, in any language, and Claude reads the model, runs quantity takeoffs by tag or material, models geometry, assigns materials and tags, takes screenshots to check its own work, and exports images and files. It ships as a Claude Desktop extension (`.mcpb`) that runs on the Node.js built into Claude Desktop, plus a small Ruby extension for SketchUp (the **SU MCP Bridge**). You do not need to install Python or Node.js.
 
-Current version: **1.2.0** - [download it from Releases](https://github.com/2ez4gcx/sketchup-mcp/releases/latest).
+Current version: **1.2.0** - [download it from Releases](https://github.com/2ez4gcx/sketchup-mcp/releases/latest). Also listed in the official [MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.2ez4gcx/sketchup-mcp) as `io.github.2ez4gcx/sketchup-mcp`.
 
 ## Features
 

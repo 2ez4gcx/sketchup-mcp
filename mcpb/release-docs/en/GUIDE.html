@@ -122,23 +122,54 @@
 <span class="say">Ping SketchUp</span>
 <span class="say">What is in this model? Summarize the tags, materials and components.</span>
 <span class="say">Take an iso screenshot so I can see it.</span>
-<p><code>ping</code> tells you <strong>which model</strong> Claude is controlling and the plugin version; if there is a <code>warning</code> line, the plugin is outdated – see section 6.</p>
+<p><code>ping</code> tells you <strong>which model</strong> Claude is controlling and the plugin version; if there is a <code>warning</code> line, the plugin is outdated – see section 7.</p>
 
 <h2><span class="num">4</span>Working safely</h2>
 <ul>
   <li><strong>Save a copy</strong> before every working session with Claude.</li>
   <li>Every change Claude makes to the model is <strong>one Undo step</strong> (<kbd>Ctrl</kbd>+<kbd>Z</kbd>), named <em>“MCP: …”</em> in the Edit menu.</li>
-  <li>Keep Claude in <strong>ask-for-permission</strong> mode. Do not choose <em>“Always allow”</em> for: <code>run_ruby</code>, <code>delete_entities</code>, <code>undo</code>, <code>save_model</code>, <code>open_model</code>, <code>new_model</code>, <code>export_file</code>, <code>export_png</code> (the two export commands can overwrite files).</li>
+  <li>Keep Claude in <strong>ask-for-permission</strong> mode. Do not choose <em>“Always allow”</em> for: <code>run_ruby</code>, <code>delete_entities</code>, <code>undo</code>, <code>save_model</code>, <code>open_model</code>, <code>new_model</code>, <code>export_file</code>, <code>export_png</code>, <code>interior_takeoff</code> (the export commands, and the takeoff when it saves a CSV file, can overwrite files).</li>
   <li><code>run_ruby</code> runs any Ruby code inside SketchUp. If you cannot read and understand the code Claude proposes, deny it and ask Claude to use the built-in tools instead.</li>
   <li>Claude only controls the <strong>first SketchUp window you open</strong> (the one holding port 9876). A second window you open is not connected.</li>
   <li>A takeoff on a large model or a heavy <code>run_ruby</code> command can freeze SketchUp for seconds to minutes – please wait. If it stays frozen for too long after a <code>run_ruby</code> command (possibly an infinite loop), close SketchUp with Task Manager; unsaved changes will be lost.</li>
   <li>The connection only listens on your own computer (<code>127.0.0.1</code>); other machines on the network cannot reach it.</li>
 </ul>
 
-<h2><span class="num">5</span>Example prompts</h2>
+<h2><span class="num">5</span>Tags &amp; interior quantity takeoff</h2>
+<p>Claude tags what it models the way a finish schedule does: <strong>one tag = one specification = one line of the bill of quantities</strong>, named <code>CODE-NN description</code>, e.g. <code>FL-01 Engineered oak floor 12mm</code>, <code>WL-02 Walnut veneer panel</code>, <code>CL-01 Gypsum flat ceiling, white paint</code>. The same spec keeps the same tag everywhere; a different spec gets the next number. Each tag goes into a folder for its category (SketchUp 2021 and later) and gets a category color, so <span class="menu">Tags panel → Color by tag</span> (SketchUp 2020+) shows at a glance what is what. If your model already uses your firm's own tag scheme, Claude follows it.</p>
+<div class="tablewrap"><table>
+  <tr><th>Code</th><th>Category</th><th>Takeoff unit</th></tr>
+  <tr><td><code>FL</code></td><td>Floor finishes</td><td>area m² (sloped parts at their real area)</td></tr>
+  <tr><td><code>SK</code></td><td>Skirting</td><td>length m</td></tr>
+  <tr><td><code>WL</code></td><td>Wall finishes (paint, cladding, wallpaper)</td><td>one-side area m²</td></tr>
+  <tr><td><code>PA</code></td><td>Partitions</td><td>one-side area m²</td></tr>
+  <tr><td><code>CL</code></td><td>Ceilings</td><td>area m² (sloped parts at their real area)</td></tr>
+  <tr><td><code>CO</code></td><td>Cornices and trims</td><td>length m</td></tr>
+  <tr><td><code>DR</code></td><td>Doors</td><td>count</td></tr>
+  <tr><td><code>WN</code></td><td>Windows</td><td>count</td></tr>
+  <tr><td><code>GL</code></td><td>Glass partitions</td><td>one-side area m²</td></tr>
+  <tr><td><code>JN</code></td><td>Built-in joinery (kitchen, wardrobe, TV unit)</td><td>count</td></tr>
+  <tr><td><code>FN</code></td><td>Loose furniture</td><td>count</td></tr>
+  <tr><td><code>LT</code></td><td>Lighting</td><td>count</td></tr>
+  <tr><td><code>SN</code></td><td>Sanitary ware</td><td>count</td></tr>
+  <tr><td><code>EQ</code></td><td>Equipment and appliances</td><td>count</td></tr>
+  <tr><td><code>CU</code></td><td>Curtains and blinds</td><td>width x height m²</td></tr>
+  <tr><td><code>DE</code></td><td>Decor and accessories</td><td>count</td></tr>
+  <tr><td><code>EX</code></td><td>Existing structure (columns, beams)</td><td>volume m³</td></tr>
+  <tr><td><code>RF</code></td><td>Reference (CAD import, guides)</td><td>not measured</td></tr>
+</table></div>
+<span class="say">Set up the tags for this finish schedule: engineered oak floor 12 mm, 600x600 porcelain tile, white matt paint, flat gypsum ceiling, 80 mm oak skirting.</span>
+<span class="say">Model the living room floor, walls and ceiling as separate finish groups, with the right tags.</span>
+<span class="say">Make an interior bill of quantities by room and save it to D:/BOQ/takeoff.csv.</span>
+<div class="box ok"><strong>How the quantities are measured</strong>Floors and ceilings: area of each board or slab, counted once (sloped ceilings at their real area). Walls, partitions and glass: <em>one side</em> of each thin upright piece, so model each wall run as its own thin group; a door or window that cuts only one face of the wall is deducted, and a wall drawn at an angle is measured like a straight one. A whole room or corridor drawn as one box (anything thicker than 600 mm) is listed as a warning instead. Skirting and cornices: the length of each run, also a run made with Follow Me around the room. Curtains: width × height. Doors, furniture, lights and fittings: number of pieces. Read the warnings: geometry in no tagged object is in no line of the bill, and objects on <strong>hidden tags</strong> are not measured unless you say “include the hidden objects”. If Excel puts everything in one column, ask for the <em>semicolon</em> CSV format.</div>
+<h3>Quantities by room</h3>
+<p>Put the objects of each room in a group named after the room <strong>without a tag</strong> (Claude does it with <code>make_group</code>), for example <code>Living room</code>; a group inside another one gives <code>Level 2 / Bedroom 1</code>. Ask for the bill of quantities <em>by room</em>: every line is split per room, and the CSV file has one column per room next to the total. Objects outside any room group take the room from their name <code>CODE-NN room - location</code> (for example <code>FL-01 Kitchen - floor</code>), otherwise they are listed under <em>(no room)</em>.</p>
+<span class="say">Group the living room objects into a room named "Living room", then make the bill of quantities by room.</span>
+
+<h2><span class="num">6</span>Example prompts</h2>
 <div class="grid2">
   <div class="card"><h4>Read &amp; summarize</h4>“List the components and their counts, sorted from most to least.”<br>“Count the D1 doors and the windows in the model.”</div>
-  <div class="card"><h4>Quantity takeoff</h4>“Run a takeoff by tag and make a table of area in m² and volume in m³.”<br>“Only the current selection, grouped by material.”<br><span class="muted">Area is the total of <em>all faces</em> (a solid includes its top, bottom and side faces) – for floor area, say “top faces only”.</span></div>
+  <div class="card"><h4>Quantity takeoff</h4>“Make an interior bill of quantities by tag.” <span class="muted">(floors and ceilings in m², walls in m² of one side, skirting in m, items by count – see section 5)</span><br>“Only the current selection, and save it to D:/BOQ/room.csv.”</div>
   <div class="card"><h4>Modelling</h4>“Create a 120 mm thick slab from the points (0,0), (6000,0), (6000,4000), (0,4000).”<br>“Move the selected objects up 300 mm.”</div>
   <div class="card"><h4>Materials &amp; tags</h4>“Assign the tag Walls to the selected objects.”<br>“Change the selected material to Tile 600x600 with color #D9D3C9.”</div>
   <div class="card"><h4>Export &amp; views</h4>“Take a top-view screenshot so I can check.” <span class="muted">(your own view is kept)</span><br>“Export a 1920x1080 iso PNG to the Desktop, named perspective.png.”</div>
@@ -146,7 +177,7 @@
 </div>
 <p class="muted">See the full list in <span class="path">SAMPLE_PROMPTS_EN.txt</span>.</p>
 
-<h2><span class="num">6</span>Troubleshooting</h2>
+<h2><span class="num">7</span>Troubleshooting</h2>
 <div class="tablewrap"><table>
   <tr><th>Message (verbatim)</th><th>Cause</th><th>What to do</th></tr>
   <tr><td><code>Cannot connect to SketchUp at 127.0.0.1:9876</code></td><td>SketchUp is not open, or the plugin is not installed or is stopped.</td><td>Open SketchUp; check <span class="menu">Extensions → SU MCP Bridge → Status</span>; if that menu is missing, repeat step 2.</td></tr>
@@ -160,13 +191,13 @@
   <tr><td>Every SketchUp tool appears twice</td><td>Another SketchUp MCP server (for example an older <code>"sketchup"</code> Python setup) is still configured in <span class="path">claude_desktop_config.json</span>.</td><td>Remove that entry (Settings → Developer → Edit Config), then restart Claude.</td></tr>
 </table></div>
 
-<h2><span class="num">7</span>Update &amp; uninstall</h2>
+<h2><span class="num">8</span>Update &amp; uninstall</h2>
 <ul>
   <li><strong>Update:</strong> install the new .mcpb file over the old one (your settings are kept), then type “Install SU MCP Bridge in SketchUp” and restart SketchUp. Always update <em>both</em> parts, then type “Ping SketchUp” – if there is no <code>warning</code> line, you are done.</li>
   <li><strong>Uninstall:</strong> Claude → <span class="menu">Settings → Extensions → SketchUp MCP → Uninstall</span>. In SketchUp: Extension Manager → SU MCP Bridge → Uninstall (or delete <span class="path">su_mcp.rb</span> and the <span class="path">su_mcp</span> folder in <span class="path">%APPDATA%\SketchUp\SketchUp 20xx\SketchUp\Plugins</span>).</li>
 </ul>
 
-<h2><span class="num">8</span>Report a problem / feedback</h2>
+<h2><span class="num">9</span>Report a problem / feedback</h2>
 <p>Open an issue on the project GitHub repository and include:</p>
 <ol>
   <li>The result of “Ping SketchUp” (SketchUp, plugin and extension versions).</li>

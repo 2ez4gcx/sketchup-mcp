@@ -1,6 +1,6 @@
 {
   "name": "sketchup-mcp",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "description": "SketchUp MCP server (Node.js) packaged as a Claude Desktop Extension (.mcpb)",
   "license": "MIT",
@@ -14,8 +14,8 @@
     "@anthropic-ai/mcpb": "2.1.2",
     "@modelcontextprotocol/sdk": "1.32.1",
     "esbuild": "0.28.2",
-    "zod": "4.6.5",
-    "fflate": "0.8.3"
+    "fflate": "0.8.3",
+    "zod": "4.6.5"
   },
   "engines": {
     "node": ">=18"

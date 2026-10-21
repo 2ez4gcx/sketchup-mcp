@@ -19,7 +19,7 @@ This README is for developers.
 
 | Path | What it is |
 |---|---|
-| `src/index.mjs` | The MCP server: 26 tools, TCP client for the bridge, `install_sketchup_bridge`. |
+| `src/index.mjs` | The MCP server: 29 tools, TCP client for the bridge, `install_sketchup_bridge`. |
 | `manifest.json` | MCPB manifest (manifest_version 0.3): tool list, `user_config` (port, timeout), compatibility. |
 | `scripts/build.mjs` | `npm run build`: bundle, `.rbz`, notices, validate, pack. |
 | `scripts/versions.mjs` | Checks that the version matches in all 4 places (used by the build and the unit tests). |
@@ -34,13 +34,23 @@ This README is for developers.
 
 | Group | Tools |
 |---|---|
-| Read / quantities | `ping`, `model_info`, `list_tags`, `list_components`, `list_materials`, `selection_info`, `quantity_takeoff` |
-| Modelling | `create_box`, `create_shape`, `create_lines`, `insert_component`, `transform_entities`, `set_material`, `set_tag`, `delete_entities`, `select_entities`, `undo` |
+| Read / quantities | `ping`, `model_info`, `list_tags`, `list_components`, `list_materials`, `selection_info`, `quantity_takeoff`, `interior_takeoff` |
+| Modelling | `create_box`, `create_shape`, `create_lines`, `insert_component`, `transform_entities`, `set_material`, `set_tag`, `setup_tags`, `make_group`, `delete_entities`, `select_entities`, `undo` |
 | Arbitrary Ruby | `run_ruby` |
 | View / files | `set_view`, `screenshot`, `export_png`, `export_file`, `save_model`, `open_model`, `new_model` |
 | Setup | `install_sketchup_bridge`: install or update the bridge in the Plugins folder of every SketchUp version opened at least once. `dry_run=true` only reports what it would do; `versions=["2026"]` picks versions. |
 
 Units: lengths in mm, areas in m², volumes in m³, angles in degrees; Z is up. Every model-editing tool is one Undo step.
+
+The interior tag standard (`CODE-NN description`: codes, category folders in English and Vietnamese, colors and the takeoff unit of each
+category) lives in `TAG_STANDARD` in `src/index.mjs`. A new tag that follows it gets its folder and color through `tag_style`
+(create_*, insert_component, set_tag, setup_tags -> bridge `create_tags`); the bridge never restyles an existing tag unless
+`update_existing` is set. `interior_takeoff` calls the bridge command `measure_tags` (read only). The bridge splits faces into pieces (connected faces with the
+same tag in one container) and measures each piece in a frame taken from its largest face: floor/ceiling area, wall area (one side
+of thin upright pieces, the smaller side when they differ), sheet area, vertical area, length (straight runs, or swept length for
+Follow Me runs), width x height and count per object, volume of solids; it also reports what it could not measure, hidden objects,
+untagged geometry and rooms (named groups without a tag). The server picks the unit of each row, adds totals, the room split and
+warnings, and writes the optional CSV.
 
 ## Prerequisites
 

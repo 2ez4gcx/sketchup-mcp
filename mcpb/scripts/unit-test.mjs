@@ -12,7 +12,8 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ENTRY = process.argv[2] || path.join(ROOT, 'dist', 'bundle', 'server', 'index.mjs');
 // Version of the build under test (build.mjs bakes package.json's version into the bundle as the bundled bridge version).
 const PKG_VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version;
-const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+const BOM = String.fromCharCode(0xfeff);
+const PNG_1PX =Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 
 let failed = 0;
 let passed = 0;
@@ -198,6 +199,153 @@ ex = received.find((q) => q.cmd === 'export_png');
 check('screenshot with width only -> max_size = width', ex && ex.params.max_size === 800 && ex.params.width === undefined, JSON.stringify(ex && ex.params));
 r = await S.tool('selection_info', { limit: -1 });
 check('selection_info negative limit -> parameter validation error', r.isError, r.txt);
+
+// 17: interior tag standard (setup_tags, tag_style on create_*/set_tag)
+received.length = 0;
+r = await S.tool('setup_tags', { tags: ['FL-01 Engineered oak floor 12mm', 'FL-02 Porcelain tile 600x600', 'CL-01 Trần thạch cao phẳng',
+  'Walls', { name: 'LT-01 Downlight', folder: 'Lighting plan', color: '#ff0000' }] });
+let ct = received.find((q) => q.cmd === 'create_tags');
+const ctTags = ct ? ct.params.tags : [];
+check('setup_tags: FL-01 -> folder "FL Floor finishes", folder_code FL, RGB color', ctTags[0] && ctTags[0].folder === 'FL Floor finishes'
+  && ctTags[0].folder_code === 'FL' && Array.isArray(ctTags[0].color) && ctTags[0].color.length === 3, JSON.stringify(ctTags[0]));
+check('setup_tags: FL-02 gets another shade than FL-01', ctTags[1] && JSON.stringify(ctTags[1].color) !== JSON.stringify(ctTags[0].color), JSON.stringify(ctTags.slice(0, 2)));
+check('setup_tags: Vietnamese name -> Vietnamese folder "CL Trần"', ctTags[2] && ctTags[2].folder === 'CL Trần', JSON.stringify(ctTags[2]));
+check('setup_tags: tag without a code -> no folder, no color', ctTags[3] && ctTags[3].name === 'Walls' && !ctTags[3].folder && !ctTags[3].color, JSON.stringify(ctTags[3]));
+check('setup_tags: explicit folder/color win, no folder_code', ctTags[4] && ctTags[4].folder === 'Lighting plan' && ctTags[4].color === '#ff0000'
+  && !ctTags[4].folder_code, JSON.stringify(ctTags[4]));
+check('setup_tags: update_existing defaults to false', ct && ct.params.update_existing === false, JSON.stringify(ct && ct.params));
+received.length = 0;
+await S.tool('setup_tags', { tags: ['WL-01 Sơn nước'], language: 'en' });
+ct = received.find((q) => q.cmd === 'create_tags');
+check('setup_tags: language=en overrides the guess', ct && ct.params.tags[0].folder === 'WL Wall finishes', JSON.stringify(ct && ct.params));
+received.length = 0;
+await S.tool('create_box', { width: 10, depth: 10, height: 10, tag: 'WL-03 Ốp gỗ veneer' });
+await S.tool('create_box', { width: 10, depth: 10, height: 10, tag: 'Walls' });
+await S.tool('set_tag', { tag: 'sk-1 skirting', entity_ids: [1] });
+const boxes = received.filter((q) => q.cmd === 'create_box');
+const st = received.find((q) => q.cmd === 'set_tag');
+check('create_box with a standard tag -> tag_style with its category folder', boxes[0] && boxes[0].params.tag_style
+  && boxes[0].params.tag_style.folder === 'WL Tường hoàn thiện', JSON.stringify(boxes[0] && boxes[0].params));
+check('create_box with a non-standard tag -> no tag_style', boxes[1] && !('tag_style' in boxes[1].params), JSON.stringify(boxes[1] && boxes[1].params));
+check('set_tag "sk-1 ..." -> code is case-insensitive (SK folder)', st && st.params.tag_style && st.params.tag_style.folder === 'SK Skirting', JSON.stringify(st && st.params));
+
+// 18: interior_takeoff (units per category, warnings, totals, CSV)
+const mt = (tag, o = {}) => ({ tag, count: 0, items: {}, nested_components: {}, plan_area_m2: 0, wall_area_m2: 0, sheet_area_m2: 0,
+  side_area_m2: 0, length_m: 0, elevation_area_m2: 0, volume_m3: 0, not_solid: 0, not_thin: [], not_upright: [], uneven_sides: [],
+  loose_faces: 0, ids: [], ...o });
+const MT_REPLY = { tags: [
+  mt('FL-01 Engineered oak floor 12mm', { count: 2, plan_area_m2: 24.3456, sheet_area_m2: 24.3456, side_area_m2: 0.2 }),
+  mt('FL-02 Porcelain tile 600x600', { count: 1, plan_area_m2: 5.5 }),
+  mt('WL-01 Paint, white', { count: 3, wall_area_m2: 30.126, sheet_area_m2: 34.126, side_area_m2: 61,
+    not_thin: [{ id: 77, name: 'Room box', size_mm: [4000, 3000, 2800] }], not_upright: [{ id: 88, name: 'Shelf', size_mm: [2000, 2000, 18] }],
+    uneven_sides: [{ id: 90, name: 'Wall C', size_mm: [4000, 2800, 100], sides_m2: [11.2, 9.31] }],
+    not_straight: [{ id: 91, name: 'Curved wall', size_mm: [3000, 2800, 400] }],
+    nested_components: { Socket: 2, '(opening) Door D1': 1 } }),
+  mt('SK-01 Oak skirting 80mm', { count: 4, length_m: 15.234 }),
+  mt('FN-01 Sofa', { count: 2, items: { Sofa: 2 } }),
+  mt('Kitchen', { count: 1, plan_area_m2: 3 }),
+  mt('Untagged', { plan_area_m2: 1 }),
+], untagged: [{ id: 5, name: 'Table', room: 'Living room', faces: 6 }, { id: null, name: '(top level)', room: '', faces: 2 }],
+rooms: [
+  { ...mt('FL-01 Engineered oak floor 12mm', { plan_area_m2: 20.004 }), room: 'Living room' },
+  { ...mt('FL-01 Engineered oak floor 12mm', { plan_area_m2: 4.3416 }), room: 'Level 2 / Bedroom 1' },
+  { ...mt('FN-01 Sofa', { count: 2 }), room: 'Living room' },
+  { ...mt('SK-01 Oak skirting 80mm', { length_m: 15.234 }), room: '' },
+  { ...mt('Untagged', { plan_area_m2: 1 }), room: '' },
+  { ...mt('FN-01 Sofa', { count: 1 }), room: 'Bedroom 10' },
+  { ...mt('FN-01 Sofa', { count: 1 }), room: 'Bedroom 2' },
+], hidden: [{ tag: 'CL-01 Gypsum', objects: 3, hidden_tag: true, names: [] },
+  { tag: 'Untagged', objects: 1, hidden_tag: false, names: [{ id: 321, name: 'Tầng 2' }] }], excluded: { 'RF-01 CAD plan': 1 }, selection_only: false };
+received.length = 0;
+behaviours.set('measure_tags', [{ reply: MT_REPLY }]);
+r = await S.tool('interior_takeoff', {});
+let boq = JSON.parse(r.txt);
+const row = (tag) => boq.rows.find((x) => x.tag === tag);
+const mq = received.find((q) => q.cmd === 'measure_tags');
+check('interior_takeoff: asks the bridge to skip RF tags', mq && JSON.stringify(mq.params.exclude_codes) === '["RF"]', JSON.stringify(mq && mq.params));
+check('interior_takeoff: FL -> plan area m2, rounded to 2 decimals', row('FL-01 Engineered oak floor 12mm').quantity === 24.35
+  && row('FL-01 Engineered oak floor 12mm').unit === 'm2' && row('FL-01 Engineered oak floor 12mm').code === 'FL-01', r.txt);
+const wlw = (row('WL-01 Paint, white').warnings || []).join(' ');
+check('interior_takeoff: WL -> wall area (one side) m2', row('WL-01 Paint, white').quantity === 30.13 && row('WL-01 Paint, white').measured_as === 'wall_area', r.txt);
+check('interior_takeoff: WL warnings: not thin, lying flat, uneven sides, nested components, untagged openings', /Not thin.*Room box/.test(wlw)
+  && /Curved or segmented.*Curved wall/.test(wlw) && /lying flat.*Shelf/.test(wlw) && /sides differ/.test(wlw) && wlw.includes('11.2 / 9.31') && wlw.includes('Socket x2') && wlw.includes('Door D1 x1'), wlw);
+check('interior_takeoff: hidden objects are reported, not silently dropped', (boq.warnings || []).some((w) => w.includes('Hidden, so NOT measured: CL-01 Gypsum (3 object(s), tag or tag folder hidden)'))
+  && boq.hidden && boq.hidden.length === 2, JSON.stringify(boq.warnings));
+check('interior_takeoff: a hidden untagged group holding tagged objects (hidden room/level) is named in the warnings', (boq.warnings || []).some((w) => w.includes('Hidden groups without a tag') && w.includes('Tầng 2 (id 321)')), JSON.stringify(boq.warnings));
+check('interior_takeoff: SK -> length m', row('SK-01 Oak skirting 80mm').quantity === 15.23 && row('SK-01 Oak skirting 80mm').unit === 'm', r.txt);
+check('interior_takeoff: FN -> count pcs', row('FN-01 Sofa').quantity === 2 && row('FN-01 Sofa').unit === 'pcs', r.txt);
+check('interior_takeoff: tag without a code -> no unit + warning', row('Kitchen').quantity === null && /known code/.test((row('Kitchen').warnings || []).join(' ')), r.txt);
+check('interior_takeoff: no Untagged row; warning names the untagged geometry with id and room', !boq.rows.some((x) => x.tag === 'Untagged')
+  && /no tagged object/.test((boq.warnings || []).join(' ')) && boq.warnings[0].includes("Table (id 5) in Living room"), r.txt);
+check('interior_takeoff: by_room not requested -> no by_room data, bridge asked without it', !boq.rooms && !row('FN-01 Sofa').by_room
+  && mq && !mq.params.by_room, r.txt);
+check('interior_takeoff: totals per category (FL = 24.35 + 5.5)', boq.totals.FL && boq.totals.FL.quantity === 29.85 && boq.totals.FL.lines === 2
+  && boq.totals.FL.category === 'Floor finishes', JSON.stringify(boq.totals));
+behaviours.set('measure_tags', [{ reply: MT_REPLY }]);
+r = await S.tool('interior_takeoff', { measures: { Kitchen: 'plan_area', fn: 'elevation_area', 'ZZ-09': 'count' }, language: 'vi' });
+boq = JSON.parse(r.txt);
+check('interior_takeoff: measures override by tag name and by code (case-insensitive code key)', row('Kitchen').quantity === 3 && row('FN-01 Sofa').measured_as === 'elevation_area', r.txt);
+check('interior_takeoff: a measures key that matches no tag is reported', (boq.warnings || []).some((w) => w.includes('matching no tag: ZZ-09')), JSON.stringify(boq.warnings));
+check('interior_takeoff: language=vi -> Vietnamese category names', boq.totals.FL && boq.totals.FL.category === 'Sàn', JSON.stringify(boq.totals));
+received.length = 0;
+behaviours.set('measure_tags', [{ reply: MT_REPLY }]);
+r = await S.tool('interior_takeoff', { by_room: true });
+boq = JSON.parse(r.txt);
+const mq2 = received.find((q) => q.cmd === 'measure_tags');
+check('interior_takeoff by_room: asks the bridge for rooms', mq2 && mq2.params.by_room === true, JSON.stringify(mq2 && mq2.params));
+check('interior_takeoff by_room: FL-01 split per room in its unit', row('FL-01 Engineered oak floor 12mm').by_room
+  && row('FL-01 Engineered oak floor 12mm').by_room['Living room'] === 20 && row('FL-01 Engineered oak floor 12mm').by_room['Level 2 / Bedroom 1'] === 4.34, r.txt);
+check('interior_takeoff by_room: counts per room, objects outside rooms under "(no room)" listed last', row('FN-01 Sofa').by_room['Living room'] === 2
+  && row('SK-01 Oak skirting 80mm').by_room['(no room)'] === 15.23 && boq.rooms[boq.rooms.length - 1] === '(no room)', JSON.stringify(boq.rooms) + r.txt);
+check('interior_takeoff by_room: rooms in natural order (Bedroom 2 before Bedroom 10)', boq.rooms.indexOf('Bedroom 2') >= 0
+  && boq.rooms.indexOf('Bedroom 2') < boq.rooms.indexOf('Bedroom 10'), JSON.stringify(boq.rooms));
+check('interior_takeoff: max_thickness_mm sent to the bridge (default 600)', mq2 && mq2.params.max_thickness_mm === 600, JSON.stringify(mq2 && mq2.params));
+behaviours.set('measure_tags', [{ reply: { ...MT_REPLY, rooms: undefined } }]);
+r = await S.tool('interior_takeoff', { by_room: true });
+check('interior_takeoff by_room with an old bridge (no rooms) -> asks to update the bridge', r.isError && r.txt.includes('install_sketchup_bridge'), r.txt);
+const roomCsv = path.join(appdata, 'boq', 'rooms.csv');
+behaviours.set('measure_tags', [{ reply: MT_REPLY }]);
+r = await S.tool('interior_takeoff', { by_room: true, csv_path: roomCsv, language: 'vi' });
+const rc = fs.existsSync(roomCsv) ? fs.readFileSync(roomCsv, 'utf8').split('\r\n') : [];
+check('interior_takeoff by_room csv: one column per room after Tổng, then Cách đo and Cảnh báo', !r.isError
+  && rc[0] === BOM + 'Mã,Tag,Hạng mục,Đơn vị,Tổng,Bedroom 2,Bedroom 10,Level 2 / Bedroom 1,Living room,(chưa có phòng),Cách đo,Cảnh báo'
+  && rc.some((l) => l.startsWith('FL-01,') && l.includes(',24.35,,,4.34,20,,')), rc.slice(0, 3).join(' | '));
+const csvCells = (line) => { let n = 1; let q = false; for (const ch of line) { if (ch === '"') q = !q; else if (ch === ',' && !q) n++; } return n; };
+check('interior_takeoff by_room csv: every line has as many cells as the header', rc.filter(Boolean).every((l) => csvCells(l) === csvCells(rc[0])),
+  rc.map(csvCells).join(','));
+received.length = 0;
+await S.tool('make_group', { entity_ids: [3, '4'], name: 'Living room' });
+await S.tool('make_group', { entity_ids: [3], name: 'Skirting', tag: 'SK-01 Oak skirting' });
+const mg = received.filter((q) => q.cmd === 'make_group');
+check('make_group: room without tag -> no tag_style; with a standard tag -> tag_style', mg[0] && JSON.stringify(mg[0].params.entity_ids) === '[3,4]'
+  && !('tag_style' in mg[0].params) && mg[1] && mg[1].params.tag_style && mg[1].params.tag_style.folder === 'SK Skirting', JSON.stringify(mg.map((q) => q.params)));
+r = await S.tool('make_group', { name: 'x' });
+check('make_group without entity_ids -> validation error', r.isError, r.txt);
+const csvFile = path.join(appdata, 'boq', 'takeoff.csv');
+behaviours.set('measure_tags', [{ reply: MT_REPLY }]);
+r = await S.tool('interior_takeoff', { csv_path: csvFile, csv_format: 'semicolon', language: 'vi' });
+const csv = fs.existsSync(csvFile) ? fs.readFileSync(csvFile, 'utf8') : '';
+check('interior_takeoff csv: written with BOM, Vietnamese headers, ";" and decimal comma', !r.isError && csv.startsWith(BOM + 'Mã;Tag;')
+  && csv.includes(';24,35;') && csv.includes('\r\n'), r.txt + ' | ' + csv.slice(0, 120));
+received.length = 0;
+r = await S.tool('interior_takeoff', { csv_path: csvFile });
+check('interior_takeoff csv: existing file is not replaced without overwrite, and the bridge is not asked first', r.isError
+  && r.txt.includes('overwrite=true') && !received.some((q) => q.cmd === 'measure_tags'), r.txt);
+behaviours.set('measure_tags', [{ reply: MT_REPLY }]);
+r = await S.tool('interior_takeoff', { csv_path: csvFile, overwrite: true });
+check('interior_takeoff csv: overwrite=true replaces it (comma format)', !r.isError && fs.readFileSync(csvFile, 'utf8').startsWith(BOM + 'Code,Tag,'), r.txt);
+r = await S.tool('interior_takeoff', { csv_path: 'boq.csv' });
+check('interior_takeoff csv: relative path -> error', r.isError && r.txt.includes('absolute path'), r.txt);
+r = await S.tool('interior_takeoff', { csv_path: path.join(appdata, 'boq', 'takeoff.skp') });
+check('interior_takeoff csv: only .csv files are written', r.isError && r.txt.includes('.csv'), r.txt);
+if (process.platform === 'win32') {
+  r = await S.tool('interior_takeoff', { csv_path: '/BOQ/takeoff.csv' });
+  check('interior_takeoff csv: Windows path without a drive letter -> error', r.isError && r.txt.includes('drive letter'), r.txt);
+  behaviours.set('measure_tags', [{ reply: MT_REPLY }]);
+  r = await S.tool('interior_takeoff', { csv_path: '//no-such-server-sumcp/share/boq.csv' });
+  check('interior_takeoff csv: UNC path accepted; a write failure keeps the BOQ and reports csv.error', !r.isError
+    && JSON.parse(r.txt).rows.length > 0 && JSON.parse(r.txt).csv && JSON.parse(r.txt).csv.error, r.txt.slice(0, 300));
+}
 
 // 9: bridge install tool on a temporary APPDATA
 const inst = async (args) => JSON.parse((await S.tool('install_sketchup_bridge', args)).txt);

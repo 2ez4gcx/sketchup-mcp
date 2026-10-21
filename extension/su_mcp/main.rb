@@ -16,7 +16,7 @@ require 'fileutils'
 
 module KhuongDoan
   module SuMcp
-    VERSION      = '1.2.0'.freeze
+    VERSION      = '1.3.0'.freeze
     HOST         = '127.0.0.1'.freeze
     DEFAULT_PORT = 9876
     IN_TO_MM     = 25.4
@@ -264,8 +264,8 @@ module KhuongDoan
 
     COMMANDS = %w[
       ping model_info list_tags list_components list_materials selection_info
-      quantity_takeoff create_box create_shape create_lines insert_component
-      transform_entities set_material set_tag delete_entities select_entities
+      quantity_takeoff measure_tags create_box create_shape create_lines insert_component
+      transform_entities set_material set_tag create_tags make_group delete_entities select_entities
       set_view export_png export_file save_model open_model new_model undo run_ruby
     ].freeze
 
@@ -366,14 +366,63 @@ module KhuongDoan
       mat
     end
 
-    def self.get_tag(name)
+    # Tag folders exist from SketchUp 2021.
+    def self.folders_supported?
+      ls = model.layers
+      ls.respond_to?(:add_folder) && ls.respond_to?(:folders)
+    end
+
+    # Top-level tag folder of a category. Reuses a folder named exactly `name`, exactly `code`, or starting with
+    # "<code> " (so "FL Floor finishes" and "FL San" are the same category); otherwise creates `name`.
+    # nil before SketchUp 2021 or without a name.
+    def self.tag_folder(code, name)
+      return nil if !folders_supported? || name.nil? || name.to_s.empty?
+      want = name.to_s
+      c = code.to_s
+      f = model.layers.folders.find do |x|
+        n = x.name.to_s
+        n == want || (!c.empty? && (n == c || n.start_with?("#{c} ")))
+      end
+      f || model.layers.add_folder(want)
+    end
+
+    def self.to_color(c)
+      return nil if c.nil? || (c.respond_to?(:empty?) && c.empty?)
+      c.is_a?(Array) ? Sketchup::Color.new(*c.first(3).map(&:to_i)) : Sketchup::Color.new(c.to_s)
+    end
+
+    # style = {'color' => [r, g, b] or '#RRGGBB', 'folder' => 'FL Floor finishes', 'folder_code' => 'FL'}, all optional.
+    # Returns [color_applied, folder_applied].
+    def self.style_tag(tag, style)
+      return [false, false] unless style.is_a?(Hash)
+      color_done = false
+      folder_done = false
+      col = to_color(style['color'])
+      if col && tag.respond_to?(:color=)
+        tag.color = col
+        color_done = true
+      end
+      f = tag_folder(style['folder_code'], style['folder'])
+      if f
+        f.add_layer(tag) unless tag.respond_to?(:folder) && tag.folder == f
+        folder_done = true
+      end
+      [color_done, folder_done]
+    end
+
+    # A missing tag is created; `style` (folder/color) is only applied to a tag created here, never to an existing one.
+    def self.get_tag(name, style = nil)
       return nil if name.nil? || name.to_s.empty?
-      model.layers[name.to_s] || model.layers.add(name.to_s)
+      tag = model.layers[name.to_s]
+      return tag if tag
+      tag = model.layers.add(name.to_s)
+      style_tag(tag, style)
+      tag
     end
 
     def self.apply_common(ent, params)
       ent.name = params['name'].to_s if params['name'] && ent.respond_to?(:name=)
-      tag = get_tag(params['tag'])
+      tag = get_tag(params['tag'], params['tag_style'])
       ent.layer = tag if tag
       mat = get_material(params['material'], params['color'])
       ent.material = mat if mat
@@ -465,8 +514,10 @@ module KhuongDoan
       end
       model.entities.each { |e| counts[e.layer] += 1 if e.respond_to?(:layer) }
       model.layers.map do |l|
-        { 'name' => tag_name(l), 'visible' => l.visible?, 'entity_count' => counts[l],
-          'color' => l.color ? l.color.to_a[0, 3] : nil }
+        h = { 'name' => tag_name(l), 'visible' => l.visible?, 'entity_count' => counts[l],
+              'color' => l.color ? l.color.to_a[0, 3] : nil }
+        h['folder'] = utf8(l.folder.name) if l.respond_to?(:folder) && l.folder
+        h
       end
     end
 
@@ -506,6 +557,7 @@ module KhuongDoan
                  'solid_volume_m3' => 0.0, 'solids' => 0, 'instances' => Hash.new(0) }
       end
       roots = only_selection ? model.selection.to_a : model.entities.to_a
+      @qt_ctx = { 'shown' => {} } # tag visibility, including hidden tag folders
       walk(roots, IDENTITY, 'Untagged', nil, include_hidden, by, stats)
       out = {}
       stats.each do |k, s|
@@ -529,7 +581,7 @@ module KhuongDoan
     def self.walk(ents, tr, tag, mat, include_hidden, by, stats)
       ents.each do |e|
         next unless e.is_a?(Sketchup::Drawingelement)
-        next if !include_hidden && (e.hidden? || !e.layer.visible?)
+        next if !include_hidden && (e.hidden? || !layer_shown?(e.layer, @qt_ctx))
         etag = untagged?(e.layer) ? tag : utf8(e.layer.name)
         emat = e.respond_to?(:material) && e.material ? utf8(e.material.display_name) : mat
         key = by == 'tag' ? etag : (emat || '(no material)')
@@ -551,6 +603,568 @@ module KhuongDoan
           end
           walk(e.definition.entities, tr * e.transformation, etag, emat, include_hidden, by, stats)
         end
+      end
+    end
+
+    # ------------------------------------------------------------------
+    # measure_tags: per-tag measurements for an interior bill of quantities. The MCP server picks the unit
+    # of each row from its tag standard (FL floor -> plan area, WL wall -> wall area, SK skirting -> length...).
+    # Read only. Faces are split into PIECES (faces with the same tag in one group/component that share edges)
+    # and each piece is measured in its own frame, taken from its largest face (so a wall drawn at an angle
+    # inside a group is measured like a straight one). Per tag:
+    #   plan_area  - floors/ceilings: a thin board (also sloped) counts one of its two big sides; any other piece
+    #                its non-vertical faces at their real area, halved when it is closed;
+    #   sheet_area - THIN pieces (thickness <= thin_ratio x their smaller in-plane size, and <= max_thickness):
+    #                area of one side (the smaller side when they differ, so an opening cut in one face only is
+    #                deducted); a curved or segmented piece: half its vertical faces;
+    #   wall_area  - sheet_area of the thin pieces that stand upright (walls, partitions, glass, cladding);
+    #   side_area  - total area of vertical faces;
+    #   length     - a straight run: its longest size; a run around a room made with Follow Me: its swept
+    #                length. Parallel overlapping parts of one object (a board and its cap) count once;
+    #   elevation  - per object: width x height in its own axes (curtains, wardrobe fronts);
+    #   count      - objects: outermost group/component carrying the tag, by definition name (items);
+    #   volume     - solid objects (inside a non-solid one: its solid parts), with the parents' scaling.
+    # Inside an object with a standard tag (code like FL-01), faces and nested objects without a code tag
+    # belong to it: only nested objects with their own code tag start another line.
+    # Rooms: a NAMED group/component WITHOUT a tag that is not part of an item is a room, e.g. "Living room";
+    # a named group that only holds rooms is a level ("Level 2 / Bedroom 1"). A group whose tag has no code but
+    # which holds tagged objects (e.g. a "Level 1" tag) is a container too. An object outside any room takes
+    # its room from its own name "<code> <room> - <location>". Geometry in no tagged object is reported in
+    # 'untagged'. Hidden objects and tags (also hidden tag folders) are skipped unless include_hidden, and
+    # reported in 'hidden'.
+    # ------------------------------------------------------------------
+    FLAT_TOL = 0.5 / 25.4 # 0.5 mm in inches
+    RUN_GAP  = 150 / 25.4 # parts of one skirting/cornice run lie within 150 mm of each other
+
+    # "FL-01 Floor" -> ['FL', 'FL-01'];  "LT Lighting" -> ['LT', nil];  "Walls" -> [nil, nil]
+    def self.tag_code(name)
+      m = name.to_s.strip.match(/\A([A-Za-z]{2,3})(?:[-_ ]?(\d{1,3}))?(?=[\s\-_.:]|\z)/)
+      return [nil, nil] unless m
+      code = m[1].upcase
+      [code, m[2] ? "#{code}-#{m[2].rjust(2, '0')}" : nil]
+    end
+
+    # Length of each local axis after the transformation (SketchUp keeps a uniform scale in element 15).
+    def self.axis_scales(tr)
+      a = tr.to_a
+      w = a[15].to_f
+      w = 1.0 if w.abs < 1e-12
+      [Math.sqrt(a[0]**2 + a[1]**2 + a[2]**2) / w.abs,
+       Math.sqrt(a[4]**2 + a[5]**2 + a[6]**2) / w.abs,
+       Math.sqrt(a[8]**2 + a[9]**2 + a[10]**2) / w.abs]
+    end
+
+    # Volume scale factor of a transformation (determinant of its linear part).
+    def self.volume_scale(tr)
+      a = tr.to_a
+      w = a[15].to_f
+      w = 1.0 if w.abs < 1e-12
+      det = a[0] * (a[5] * a[10] - a[9] * a[6]) - a[4] * (a[1] * a[10] - a[9] * a[2]) + a[8] * (a[1] * a[6] - a[5] * a[2])
+      (det / (w**3)).abs
+    end
+
+    def self.dot(a, b)
+      a.x * b.x + a.y * b.y + a.z * b.z
+    end
+
+    # Unit normal of a face in world coordinates (Newell's method on the transformed outer loop: exact for
+    # any scaling or mirroring). pos = cache of transformed vertex positions.
+    def self.world_normal(f, tr, pos)
+      pts = f.outer_loop.vertices.map { |v| pos[v] ||= v.position.transform(tr) }
+      nx = ny = nz = 0.0
+      pts.each_with_index do |p, i|
+        q = pts[(i + 1) % pts.size]
+        nx += (p.y - q.y) * (p.z + q.z)
+        ny += (p.z - q.z) * (p.x + q.x)
+        nz += (p.x - q.x) * (p.y + q.y)
+      end
+      v = Geom::Vector3d.new(nx, ny, nz)
+      v.length > 0 ? v.normalize : Geom::Vector3d.new(0, 0, 1)
+    end
+
+    # Tag shown? Also checks its tag folders (SketchUp 2021+).
+    def self.layer_shown?(l, ctx)
+      c = ctx['shown']
+      return c[l] if c.key?(l)
+      ok = l.visible?
+      f = ok && l.respond_to?(:folder) ? l.folder : nil
+      while ok && f
+        ok = false if f.respond_to?(:visible?) && !f.visible?
+        f = f.respond_to?(:folder) ? f.folder : nil
+      end
+      c[l] = ok
+    end
+
+    def self.cmd_measure_tags(p)
+      ratio = p['thin_ratio'].to_f
+      ratio = 0.5 unless ratio > 0 && ratio < 1
+      max_t = p['max_thickness_mm'].to_f
+      max_t = 600.0 unless max_t > 0
+      ctx = { 'hidden' => p['include_hidden'] ? true : false, 'ratio' => ratio, 'max_t' => max_t.mm, 'rows' => {},
+              'codes' => {}, 'exclude' => Array(p['exclude_codes']).map { |c| c.to_s.upcase }, 'excluded' => Hash.new(0),
+              'untagged' => {}, 'skipped' => {}, 'shown' => {}, 'wrap' => {}, 'holds' => {}, 'pure' => {}, 'runs' => {} }
+      sel = p['selection_only'] ? true : false
+      roots = sel ? model.selection.to_a : model.entities.to_a
+      raise ArgumentError, 'selection_only=true but nothing is selected' if sel && roots.empty?
+      tr = IDENTITY
+      key = nil
+      room = ''
+      counted = []
+      if sel && model.respond_to?(:active_path) && model.active_path
+        # the selection is inside an open group: start from the tag and room of the groups around it
+        tr = model.edit_transform
+        model.active_path.each do |inst|
+          ekey = mt_key(inst, key, ctx)
+          nm = utf8(inst.name).strip
+          if ekey == 'Untagged'
+            room = room.empty? ? nm : "#{room} / #{nm}" unless nm.empty?
+          elsif key.nil? && mt_code(ekey, ctx).nil?
+            room = room.empty? ? nm : "#{room} / #{nm}" unless nm.empty?
+          else
+            counted += [ekey] unless counted.include?(ekey)
+            key = ekey
+          end
+        end
+      end
+      mt_walk(roots, tr, key, counted, ctx, nil, room, nil, false, nil, true)
+      mt_finish_runs(ctx)
+      # rows are kept per [tag, room]; the per-tag rows add up the rooms
+      per_tag = {}
+      ctx['rows'].each { |(tag, _room), a| mt_merge(per_tag[tag] ||= mt_new, a) }
+      order = lambda { |k| [k == 'Untagged' ? 1 : 0, k] }
+      r = { 'tags' => per_tag.keys.sort_by(&order).map { |k| mt_out(per_tag[k]).merge('tag' => k) },
+            'untagged' => ctx['untagged'].values, 'hidden' => ctx['skipped'].values, 'excluded' => ctx['excluded'],
+            'thin_ratio' => ratio, 'max_thickness_mm' => max_t, 'selection_only' => sel }
+      if p['by_room']
+        r['rooms'] = ctx['rows'].keys.sort_by { |(t, rm)| [rm, order.call(t)] }.map do |(t, rm)|
+          mt_out(ctx['rows'][[t, rm]]).merge('tag' => t, 'room' => rm)
+        end
+      end
+      r
+    end
+
+    MT_SUMS = %w[plan sheet wall side length elev volume count not_solid loose_faces].freeze
+    MT_LISTS = %w[not_thin not_upright uneven not_straight].freeze
+
+    def self.mt_new
+      h = { 'items' => Hash.new(0), 'nested' => Hash.new(0), 'ids' => [] }
+      MT_LISTS.each { |k| h[k] = [] }
+      MT_SUMS.each { |k| h[k] = 0 }
+      %w[plan sheet wall side length elev volume].each { |k| h[k] = 0.0 }
+      h
+    end
+
+    def self.mt_merge(to, a)
+      MT_SUMS.each { |k| to[k] += a[k] }
+      a['items'].each { |n, c| to['items'][n] += c }
+      a['nested'].each { |n, c| to['nested'][n] += c }
+      MT_LISTS.each { |k| to[k] = (to[k] + a[k]).first(10) }
+      to['ids'] = (to['ids'] + a['ids']).first(50)
+      to
+    end
+
+    def self.mt_out(a)
+      top = lambda { |h| h.sort_by { |n, c| [-c, n] }.first(30).to_h }
+      { 'count' => a['count'], 'items' => top.call(a['items']), 'nested_components' => top.call(a['nested']),
+        'plan_area_m2' => a['plan'].round(4), 'sheet_area_m2' => a['sheet'].round(4), 'wall_area_m2' => a['wall'].round(4),
+        'side_area_m2' => a['side'].round(4), 'length_m' => a['length'].round(4),
+        'elevation_area_m2' => a['elev'].round(4), 'volume_m3' => a['volume'].round(6),
+        'not_solid' => a['not_solid'], 'not_thin' => a['not_thin'], 'not_upright' => a['not_upright'],
+        'uneven_sides' => a['uneven'], 'not_straight' => a['not_straight'], 'loose_faces' => a['loose_faces'],
+        'ids' => a['ids'] }
+    end
+
+    def self.mt_acc(ctx, key, room)
+      ctx['rows'][[key, room]] ||= mt_new
+    end
+
+    # "FL-01 Living room - floor" on tag FL-01 -> "Living room". '' unless the name is "<code> <room> - <location>"
+    # with the code of the object's own tag (so "WL-01 wall B" or "TV unit - Living room" give no room).
+    def self.mt_room_from_name(name, key, ctx)
+      s = name.to_s.strip
+      m = s.match(/\A[A-Za-z]{2,3}(?:[-_ ]?\d{1,3})?(?=[\s\-_.:])[\s\-_.:]+(.+)\z/)
+      return '' unless m && m[1].include?(' - ')
+      code = tag_code(s)[0]
+      return '' unless code && code == mt_code(key, ctx)
+      m[1].split(' - ').first.to_s.strip
+    end
+
+    def self.mt_code(key, ctx)
+      (ctx['codes'][key] ||= tag_code(key))[0]
+    end
+
+    def self.mt_excluded?(key, ctx)
+      return false if ctx['exclude'].empty?
+      code = mt_code(key, ctx)
+      code && ctx['exclude'].include?(code) ? true : false
+    end
+
+    def self.mt_container?(e)
+      e.is_a?(Sketchup::Group) || e.is_a?(Sketchup::ComponentInstance)
+    end
+
+    def self.mt_visible?(e, ctx)
+      ctx['hidden'] || !(e.hidden? || !layer_shown?(e.layer, ctx))
+    end
+
+    # Effective tag of an entity: inside an object with a code tag, only a nested code tag counts.
+    def self.mt_key(e, key, ctx)
+      own = untagged?(e.layer) ? nil : utf8(e.layer.name)
+      return key if e.is_a?(Sketchup::Face) && key
+      return key if key && (own.nil? || (mt_code(key, ctx) && mt_code(own, ctx).nil?))
+      own || key || 'Untagged'
+    end
+
+    # Does a definition hold (at any depth, visible) an object with a code tag? (rooms and levels do)
+    def self.mt_holds_code?(defn, ctx)
+      memo = ctx['holds']
+      return memo[defn] if memo.key?(defn)
+      memo[defn] = false
+      memo[defn] = defn.entities.any? do |x|
+        next false unless mt_container?(x) && mt_visible?(x, ctx)
+        (!untagged?(x.layer) && mt_code(utf8(x.layer.name), ctx)) || mt_holds_code?(x.definition, ctx)
+      end
+    end
+
+    # A pure container (a level): no faces and no code-tagged objects of its own, only other groups.
+    def self.mt_pure?(defn, ctx)
+      memo = ctx['pure']
+      return memo[defn] if memo.key?(defn)
+      memo[defn] = defn.entities.none? do |x|
+        x.is_a?(Sketchup::Face) || (mt_container?(x) && !untagged?(x.layer) && mt_code(utf8(x.layer.name), ctx))
+      end
+    end
+
+    # Hidden objects are skipped (unless include_hidden) and reported; hidden untagged groups only when they hold
+    # tagged objects (a hidden room or level).
+    def self.mt_skip(e, ekey, ctx)
+      return false if mt_visible?(e, ctx)
+      if mt_container?(e) && (ekey != 'Untagged' || mt_holds_code?(e.definition, ctx))
+        s = ctx['skipped'][ekey] ||= { 'tag' => ekey, 'objects' => 0, 'hidden_tag' => false, 'names' => [] }
+        s['objects'] += 1
+        s['hidden_tag'] = true unless layer_shown?(e.layer, ctx)
+        if ekey == 'Untagged' && s['names'].size < 10
+          nm = utf8(e.name).strip
+          s['names'] << { 'id' => e.entityID, 'name' => nm.empty? ? utf8(e.definition.name) : nm }
+        end
+      end
+      true
+    end
+
+    # key = tag of the enclosing tagged object (nil outside any); counted = tags already counted by an ancestor;
+    # room = room path; culprit = outermost untagged, non-room object we are inside (for the untagged report);
+    # need_vol = the enclosing counted object is not solid, so its solid parts give the volume;
+    # obj = id of the object counted for key (its runs are merged); pure = the room holds only rooms (a level).
+    def self.mt_walk(ents, tr, key, counted, ctx, owner, room, culprit, need_vol, obj, pure)
+      buckets = {}
+      ents.each do |e|
+        next unless e.is_a?(Sketchup::Face) || mt_container?(e) # edges, texts, guides... are not measured
+        ekey = mt_key(e, key, ctx)
+        if mt_excluded?(ekey, ctx)
+          ctx['excluded'][ekey] += 1 if mt_container?(e)
+          next
+        end
+        next if mt_skip(e, ekey, ctx)
+        if e.is_a?(Sketchup::Face)
+          (buckets[ekey] ||= []) << e
+          next
+        end
+        wt = tr * e.transformation
+        nm = utf8(e.name).strip
+        defn = e.definition
+        if ekey == 'Untagged' || (key.nil? && mt_code(ekey, ctx).nil? && mt_holds_code?(defn, ctx))
+          # not a BOQ item: a named one is a room (a level when it only holds rooms), unless it is a part of an
+          # untagged assembly; any other one is transparent
+          if !nm.empty? && (room.empty? || pure) && (culprit.nil? || mt_holds_code?(defn, ctx))
+            mt_walk(defn.entities, wt, nil, counted, ctx, e, room.empty? ? nm : "#{room} / #{nm}", nil, false, nil,
+                    mt_pure?(defn, ctx))
+          else
+            mt_walk(defn.entities, wt, nil, counted, ctx, e, room, ekey == 'Untagged' ? (culprit || e) : culprit,
+                    false, nil, false)
+          end
+          next
+        end
+        # an untagged door/window (cuts an opening) inside a wall is not part of the wall finish
+        if key && ekey == key && e.is_a?(Sketchup::ComponentInstance) && defn.behavior.cuts_opening?
+          mt_acc(ctx, ekey, room)['nested']["(opening) #{utf8(defn.name)}"] += 1
+          next
+        end
+        first = !counted.include?(ekey)
+        # a group of objects that carry this tag themselves (6 FN-01 chairs grouped, the group tagged FN-01 too)
+        # is only a container: its objects are counted
+        if first && mt_wrapper?(defn, ekey, ctx)
+          mt_walk(defn.entities, wt, ekey, counted, ctx, e, room, culprit, false, nil, false)
+          next
+        end
+        eroom = room
+        eobj = obj
+        if first
+          eroom = mt_room_from_name(nm, ekey, ctx) if room.empty?
+          mt_object(e, wt, ekey, ctx, eroom)
+          eobj = e.entityID
+        elsif e.is_a?(Sketchup::ComponentInstance)
+          mt_acc(ctx, ekey, eroom)['nested'][utf8(defn.name)] += 1
+        end
+        child_vol = first || need_vol ? !mt_volume(e, tr, ekey, ctx, eroom) : false
+        # geometry of its own that is not a solid: its volume is missing
+        mt_acc(ctx, ekey, eroom)['not_solid'] += 1 if child_vol && defn.entities.any? { |x| x.is_a?(Sketchup::Face) }
+        mt_walk(defn.entities, wt, ekey, first ? counted + [ekey] : counted, ctx, e, eroom, culprit, child_vol, eobj, false)
+      end
+      buckets.each do |k, faces|
+        if k == 'Untagged'
+          mt_untagged(faces, ctx, culprit || owner, room)
+          next
+        end
+        mt_pieces(faces).each { |pc| mt_piece(pc, tr, k, k != key, ctx, owner, room, k == key ? obj : nil) }
+      end
+    end
+
+    # Does a definition hold (at any depth) a visible group/component that carries `key` itself?
+    def self.mt_wrapper?(defn, key, ctx)
+      memo = ctx['wrap']
+      mk = [defn, key]
+      return memo[mk] if memo.key?(mk)
+      memo[mk] = false # also stops a recursive definition
+      memo[mk] = defn.entities.any? do |x|
+        next false unless mt_container?(x) && mt_visible?(x, ctx)
+        (!untagged?(x.layer) && utf8(x.layer.name) == key) || mt_wrapper?(x.definition, key, ctx)
+      end
+    end
+
+    # Adds the volume of a solid object (with its parents' scaling); false when it is not solid.
+    def self.mt_volume(e, tr, key, ctx, room)
+      v = e.volume
+      return false unless v && v > 0
+      mt_acc(ctx, key, room)['volume'] += v * volume_scale(tr) * IN3_TO_M3
+      true
+    end
+
+    # Pieces of a list of faces: faces that share an edge, following only faces of the list (not other tags).
+    def self.mt_pieces(faces)
+      return [faces] if faces.size == 1
+      inb = {}
+      faces.each { |f| inb[f] = true }
+      seen = {}
+      out = []
+      faces.each do |f|
+        next if seen[f]
+        seen[f] = true
+        pc = [f]
+        i = 0
+        while i < pc.size
+          pc[i].edges.each do |ed|
+            ed.faces.each do |g|
+              next if seen[g] || !inb[g]
+              seen[g] = true
+              pc << g
+            end
+          end
+          i += 1
+        end
+        out << pc
+      end
+      out
+    end
+
+    # Geometry in no tagged object, reported per outermost untagged object (or the room / top level holding it).
+    def self.mt_untagged(faces, ctx, holder, room)
+      id = holder ? holder.entityID : 0
+      u = ctx['untagged'][id]
+      if u.nil?
+        return if ctx['untagged'].size >= 50
+        name = if holder.nil?
+                 '(top level)'
+               elsif holder.is_a?(Sketchup::ComponentInstance) && holder.name.to_s.empty?
+                 utf8(holder.definition.name)
+               else
+                 utf8(holder.name)
+               end
+        u = ctx['untagged'][id] = { 'id' => holder ? id : nil, 'name' => name, 'room' => room, 'faces' => 0 }
+      end
+      u['faces'] += faces.size
+    end
+
+    def self.mt_object(e, wt, key, ctx, room)
+      a = mt_acc(ctx, key, room)
+      a['count'] += 1
+      name = if e.is_a?(Sketchup::Group)
+               e.name.to_s.empty? ? '[Group]' : "[Group] #{utf8(e.name)}"
+             else
+               utf8(e.definition.name)
+             end
+      a['items'][name] += 1
+      a['ids'] << e.entityID if a['ids'].size < 50
+      # Width x height in the object's own axes; the height axis is the local axis that stands most upright
+      # (a rotated curtain, or one drawn flat and stood up, keeps its real size).
+      bb = e.definition.bounds
+      return if bb.empty?
+      m = wt.to_a
+      cols = [[m[0], m[1], m[2]], [m[4], m[5], m[6]], [m[8], m[9], m[10]]]
+      sizes = []
+      up = []
+      sc = axis_scales(wt)
+      [bb.width, bb.height, bb.depth].each_with_index do |ext, i|
+        sizes << ext * sc[i]
+        len = Math.sqrt(cols[i][0]**2 + cols[i][1]**2 + cols[i][2]**2)
+        up << (len > 0 ? cols[i][2].abs / len : 0.0)
+      end
+      hax = (0..2).max_by { |i| up[i] }
+      width = (0..2).reject { |i| i == hax }.map { |i| sizes[i] }.max
+      a['elev'] += width * sizes[hax] * IN2_TO_M2
+    end
+
+    # One piece: faces with the same tag in one container that share edges. standalone = the faces carry their
+    # own tag (outside any tagged object), so they also add width x height and count as loose faces.
+    # obj = the counted object holding the piece: its straight runs are merged at the end (mt_finish_runs).
+    def self.mt_piece(faces, tr, key, standalone, ctx, owner, room, obj)
+      a = mt_acc(ctx, key, room)
+      pos = {}
+      areas = faces.map { |f| f.area(tr) * IN2_TO_M2 }
+      normals = faces.map { |f| world_normal(f, tr, pos) }
+      faces.each { |f| f.vertices.each { |vx| pos[vx] ||= vx.position.transform(tr) } }
+      big = (0...faces.size).max_by { |i| areas[i] }
+      n = normals[big]
+      if n.z.abs < 0.98
+        u = n.cross(Geom::Vector3d.new(0, 0, 1)).normalize
+      else
+        # (near) horizontal: along its longest edge, kept in the face plane
+        ed = faces[big].edges.max_by { |x| x.length }
+        d = (pos[ed.end] ||= ed.end.position.transform(tr)) - (pos[ed.start] ||= ed.start.position.transform(tr))
+        k = dot(d, n)
+        d = Geom::Vector3d.new(d.x - n.x * k, d.y - n.y * k, d.z - n.z * k)
+        u = d.length > 0 ? d.normalize : Geom::Vector3d.new(1, 0, 0)
+      end
+      v = n.cross(u).normalize
+      nx = n.x; ny = n.y; nz = n.z; ux = u.x; uy = u.y; uz = u.z; vx_ = v.x; vy = v.y; vz = v.z
+      lo0 = lo1 = lo2 = zmin = nil
+      hi0 = hi1 = hi2 = zmax = nil
+      pos.each_value do |q|
+        s0 = q.x * nx + q.y * ny + q.z * nz
+        s1 = q.x * ux + q.y * uy + q.z * uz
+        s2 = q.x * vx_ + q.y * vy + q.z * vz
+        lo0 = s0 if lo0.nil? || s0 < lo0
+        hi0 = s0 if hi0.nil? || s0 > hi0
+        lo1 = s1 if lo1.nil? || s1 < lo1
+        hi1 = s1 if hi1.nil? || s1 > hi1
+        lo2 = s2 if lo2.nil? || s2 < lo2
+        hi2 = s2 if hi2.nil? || s2 > hi2
+        zmin = q.z if zmin.nil? || q.z < zmin
+        zmax = q.z if zmax.nil? || q.z > zmax
+      end
+      t = hi0 - lo0
+      su = hi1 - lo1
+      sv = hi2 - lo2
+      flat = t < FLAT_TOL
+      thin = flat || (t <= ctx['ratio'] * [su, sv].min && t <= ctx['max_t'])
+      upright = n.z.abs < 0.17
+      # closed piece: every edge is shared by two of its faces (a board, a wall solid)
+      uses = Hash.new(0)
+      faces.each { |f| f.edges.each { |e2| uses[e2] += 1 } }
+      closed = !uses.empty? && uses.values.all? { |c| c >= 2 }
+      nonvert = side = horiz = 0.0
+      curved = false
+      par = []
+      faces.each_with_index do |f, i|
+        ar = areas[i]
+        w = normals[i]
+        c = dot(w, n)
+        if w.z.abs >= 0.17
+          nonvert += ar
+        else
+          side += ar
+          curved = true if c.abs > 0.17 && c.abs < 0.99
+        end
+        horiz += ar * Math.sqrt(w.x * w.x + w.y * w.y)
+        par << [ar, c, dot(pos[f.vertices.first], n)] if c.abs > 0.99
+      end
+      # the two sides of the piece: by the direction of the face normals (a pilaster or a niche on one side
+      # stays on its side); faces all turned the same way (reversed faces): by their position
+      side_a = side_b = 0.0
+      if par.any? { |x| x[1] > 0 } && par.any? { |x| x[1] < 0 }
+        par.each { |ar, c, _| c > 0 ? side_a += ar : side_b += ar }
+      else
+        mid = (lo0 + hi0) / 2.0
+        par.each { |ar, _, off| flat || off < mid ? side_a += ar : side_b += ar }
+      end
+      one = flat || side_a.zero? || side_b.zero? ? side_a + side_b : [side_a, side_b].min
+      label = lambda do
+        { 'id' => owner ? owner.entityID : nil, 'name' => owner ? utf8(owner.name) : '(faces at the top level)',
+          'size_mm' => [su, sv, t].map { |d| to_mm(d).round } }
+      end
+      if thin && !upright && !curved && side_a + side_b >= 0.9 * nonvert
+        a['plan'] += one
+      else
+        a['plan'] += closed ? nonvert / 2.0 : nonvert
+      end
+      a['side'] += side
+      # length: a straight run its longest size; a run that turns (Follow Me around a room) its swept length,
+      # i.e. the horizontal part of its face areas / (2 x its height)
+      h = zmax - zmin
+      dims = [t, su, sv]
+      li = (0..2).max_by { |i| dims[i] }
+      len = dims[li]
+      swept = h > FLAT_TOL ? horiz / IN2_TO_M2 / (2 * h) : 0.0
+      straight = !(swept > 1.1 * len) || (thin && upright && !curved)
+      len = swept unless straight
+      if obj && straight
+        ax = [n, u, v][li]
+        lo = [lo0, lo1, lo2][li]
+        hi = [hi0, hi1, hi2][li]
+        c0 = Geom::Point3d.new((pos.values.map(&:x).min + pos.values.map(&:x).max) / 2.0,
+                               (pos.values.map(&:y).min + pos.values.map(&:y).max) / 2.0, (zmin + zmax) / 2.0)
+        (ctx['runs'][[key, room, obj]] ||= []) << [ax, lo, hi, c0, len]
+      else
+        a['length'] += len * IN_TO_MM / 1000.0
+      end
+      if thin
+        if upright && curved
+          one = side / 2.0
+          a['not_straight'] << label.call if a['not_straight'].size < 10
+        end
+        a['sheet'] += one
+        if upright
+          a['wall'] += one
+        elsif a['not_upright'].size < 10
+          a['not_upright'] << label.call
+        end
+        if !curved && !flat && side_a > 0 && side_b > 0 && (side_a - side_b).abs > 0.02 * [side_a, side_b].max &&
+           a['uneven'].size < 10
+          a['uneven'] << label.call.merge('sides_m2' => [side_a.round(2), side_b.round(2)])
+        end
+      elsif a['not_thin'].size < 10
+        a['not_thin'] << label.call
+      end
+      return unless standalone
+      a['loose_faces'] += faces.size
+      a['elev'] += upright ? su * sv * IN2_TO_M2 : 0.0
+    end
+
+    # Straight runs of one object: parallel parts that overlap along their length and lie within RUN_GAP of each
+    # other (a skirting board and its cap) count once, the longest; separate runs are added up.
+    def self.mt_finish_runs(ctx)
+      ctx['runs'].each do |(key, room, _obj), runs|
+        kept = []
+        runs.sort_by { |r| -r[4] }.each do |r|
+          ax, lo, hi, c0, len = r
+          dup = kept.any? do |k|
+            kax, klo, khi, kc = k
+            cs = dot(ax, kax)
+            next false unless cs.abs > 0.99
+            # r's interval on k's axis
+            a1 = lo * cs
+            b1 = hi * cs
+            rlo = [a1, b1].min
+            rhi = [a1, b1].max
+            over = [rhi, khi].min - [rlo, klo].max
+            next false unless over > 0.5 * [hi - lo, khi - klo].min
+            d = c0 - kc
+            along = dot(d, kax)
+            perp = Math.sqrt([d.x * d.x + d.y * d.y + d.z * d.z - along * along, 0.0].max)
+            perp < RUN_GAP
+          end
+          kept << r unless dup
+        end
+        mt_acc(ctx, key, room)['length'] += kept.inject(0.0) { |s, r| s + r[4] } * IN_TO_MM / 1000.0
       end
     end
 
@@ -692,10 +1306,57 @@ module KhuongDoan
       end
     end
 
+    # Create several tags in one Undo step, each with an optional folder (SketchUp 2021+) and color.
+    # tags = [{'name' => 'FL-01 ...', 'color' => [r, g, b], 'folder' => 'FL Floor finishes', 'folder_code' => 'FL'}, ...]
+    # An existing tag keeps its folder and color unless update_existing is true.
+    def self.cmd_create_tags(p)
+      list = Array(p['tags'])
+      raise ArgumentError, 'tags must be a non-empty list' if list.empty?
+      update = p['update_existing'] ? true : false
+      with_operation('create_tags') do |m|
+        out = list.map do |t|
+          t = { 'name' => t } unless t.is_a?(Hash)
+          name = t['name'].to_s.strip
+          raise ArgumentError, 'Every tag needs a name' if name.empty?
+          tag = m.layers[name]
+          created = tag.nil?
+          tag ||= m.layers.add(name)
+          color_done, folder_done = created || update ? style_tag(tag, t) : [false, false]
+          h = { 'name' => utf8(tag.name), 'created' => created, 'color_applied' => color_done, 'folder_applied' => folder_done }
+          h['folder'] = utf8(tag.folder.name) if tag.respond_to?(:folder) && tag.folder
+          h
+        end
+        r = { 'tags' => out, 'created' => out.count { |h| h['created'] }, 'folders_supported' => folders_supported? }
+        r['note'] = 'Tag folders need SketchUp 2021 or later: the tags were created without folders.' unless folders_supported?
+        r
+      end
+    end
+
+    # Put existing entities into a new group, e.g. a room ("Living room", no tag) holding its finishes and items.
+    # The entities must be in the context being edited (model.active_entities): SketchUp's add_group is only
+    # reliable there. One Undo step.
+    def self.cmd_make_group(p)
+      raise ArgumentError, 'entity_ids are required' if Array(p['entity_ids']).empty?
+      ents = find_entities(p)
+      act = model.active_entities
+      ents.each do |e|
+        next if e.parent == act.parent
+        raise ArgumentError, "Entity #{e.entityID} is not in the context being edited (it is inside another group/component); " \
+                             'close the group being edited or pick entities at the same level'
+      end
+      with_operation('make_group') do |_m|
+        g = act.add_group(ents.uniq)
+        g.name = p['name'].to_s if p['name'] && !p['name'].to_s.empty?
+        # no tag given: Untagged (a room), never the tag that happens to be active in SketchUp
+        g.layer = get_tag(p['tag'], p['tag_style']) || model.layers[0]
+        entity_summary(g).merge('grouped' => ents.uniq.size)
+      end
+    end
+
     def self.cmd_set_tag(p)
       ents = find_entities(p)
       with_operation('set_tag') do |_m|
-        tag = get_tag(p['tag'])
+        tag = get_tag(p['tag'], p['tag_style'])
         raise ArgumentError, 'Missing tag name' unless tag
         ents.each { |e| e.layer = tag if e.respond_to?(:layer=) }
         { 'tag' => tag_name(tag), 'count' => ents.size }

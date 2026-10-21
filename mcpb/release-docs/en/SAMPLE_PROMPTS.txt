@@ -23,12 +23,29 @@ READ & STATISTICS (safe, does not modify the model)
 - What are the objects I have selected, and how big is their bounding box in mm?
 - Which tags are hidden? Which materials have a texture?
 
-QUANTITY TAKEOFF
-- Run a quantity takeoff by tag and make a table of area (m2) and volume (m3).
+TAGS & INTERIOR QUANTITY TAKEOFF (tag standard "CODE-NN description": FL floor, SK skirting, WL wall finish,
+PA partition, CL ceiling, CO cornice, DR door, WN window, GL glass, JN built-in joinery, FN furniture, LT lighting,
+SN sanitary, EQ equipment, CU curtain, DE decor, EX existing structure, RF reference)
+- Set up the tags for this finish schedule: engineered oak floor 12 mm, 600x600 porcelain tile, white matt paint,
+  walnut veneer wall panel, flat gypsum ceiling, stepped gypsum ceiling, 80 mm oak skirting, LED downlight.
+  (Claude creates FL-01, FL-02, WL-01, WL-02, CL-01, CL-02, SK-01, LT-01 in their folders, with category colors)
+- Model the floor, walls and ceiling of the living room (6000 x 4500 mm, ceiling height 2800 mm) as separate
+  finish groups with the right tags. Add skirting on every wall.
+- Check the tags: list the objects that are still Untagged and tag them.
+- Make an interior bill of quantities by tag.
+  (floors and ceilings in m2 - sloped parts at their real area, walls/partitions/glass in m2 of one side, skirting and cornices in m,
+   curtains in m2 width x height, doors/furniture/lights by count; read the warnings)
+- Only for the selected objects (one room), and save it to D:/BOQ/living-room.csv.
+  (if Excel shows everything in one column: "use the semicolon CSV format")
+- Count LT-05 LED strip by length instead of by piece.   (Claude passes measures {"LT-05": "length"})
+- Group the living room objects into a room named "Living room" (a named group WITHOUT a tag).
+- Make the bill of quantities by room and save it to D:/BOQ/takeoff.csv.   (one CSV column per room)
+- Include the hidden objects too.   (objects on hidden tags are only listed in the warnings by default)
+
+QUANTITY TAKEOFF (raw totals)
 - Run a quantity takeoff by material, only for the selected objects.
-- Calculate the TOP-face area of the slabs on tag "Floor" (the real floor area).   (Claude will use run_ruby)
-  -> Note: face_area_m2 in the takeoff is the total area of ALL faces (a solid includes its top, bottom and
-     side faces), so it is NOT floor area. Volume is only computed for groups/components that are solids.
+  -> Note: face_area_m2 of quantity_takeoff is the total area of ALL faces (a solid includes its top, bottom and
+     side faces). For floor/wall/ceiling quantities use the interior bill of quantities above.
 
 MODELLING
 - Create a 2000 x 1000 x 750 mm box at the origin, named "Box table", material "Oak" with color #B3A092.

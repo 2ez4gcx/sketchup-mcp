@@ -6,20 +6,23 @@
 
 SketchUp MCP cho phép Claude làm việc trực tiếp trên mô hình SketchUp đang mở. Bạn hỏi bằng ngôn ngữ tự nhiên (tiếng Việt, tiếng Anh hay ngôn ngữ nào cũng được), Claude sẽ đọc mô hình, bóc khối lượng theo tag hoặc vật liệu, dựng hình, gán vật liệu và tag, chụp ảnh để tự kiểm tra, xuất ảnh và xuất file. Gồm hai phần: một extension cho Claude Desktop (`.mcpb`, chạy bằng Node.js có sẵn trong Claude Desktop) và một plugin Ruby nhỏ cho SketchUp (**SU MCP Bridge**). Không cần cài Python hay Node.js.
 
-Phiên bản 1.2.0 (menu, thông báo và mô tả công cụ bằng tiếng Anh). Bản đầy đủ và cập nhật nhất của tài liệu này là [README.md](README.md) (tiếng Anh). Dự án có trên [MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.2ez4gcx/sketchup-mcp) chính thức với tên `io.github.2ez4gcx/sketchup-mcp`.
+Phiên bản 1.3.0 (menu, thông báo và mô tả công cụ bằng tiếng Anh). Bản đầy đủ và cập nhật nhất của tài liệu này là [README.md](README.md) (tiếng Anh). Dự án có trên [MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.2ez4gcx/sketchup-mcp) chính thức với tên `io.github.2ez4gcx/sketchup-mcp`.
 
 ## Tính năng
 
-26 công cụ, đơn vị chiều dài là mm (diện tích m², thể tích m³, góc theo độ, trục Z hướng lên):
+29 công cụ, đơn vị chiều dài là mm (diện tích m², thể tích m³, góc theo độ, trục Z hướng lên):
 
 | Nhóm | Công cụ |
 |---|---|
-| Đọc & thống kê | `ping`, `model_info`, `list_tags`, `list_components`, `list_materials`, `selection_info`, `quantity_takeoff` |
-| Dựng hình & chỉnh sửa | `create_box`, `create_shape` (đa giác + pushpull), `create_lines`, `insert_component`, `transform_entities`, `set_material`, `set_tag`, `delete_entities`, `select_entities`, `undo` |
+| Đọc & thống kê | `ping`, `model_info`, `list_tags`, `list_components`, `list_materials`, `selection_info`, `quantity_takeoff`, `interior_takeoff` |
+| Dựng hình & chỉnh sửa | `create_box`, `create_shape` (đa giác + pushpull), `create_lines`, `insert_component`, `transform_entities`, `set_material`, `set_tag`, `setup_tags`, `make_group`, `delete_entities`, `select_entities`, `undo` |
 | Góc nhìn, ảnh & file | `set_view`, `screenshot`, `export_png`, `export_file`, `save_model`, `open_model`, `new_model` |
 | Chạy Ruby | `run_ruby` |
 | Cài đặt | `install_sketchup_bridge` |
 
+- **Đặt tag chuyên nghiệp**: Claude đặt tag như bảng vật liệu hoàn thiện, dạng `MÃ-số mô tả` (vd `FL-01 Sàn gỗ kỹ thuật sồi 12mm`, `WL-02 Ốp gỗ veneer óc chó`, `CL-01 Trần thạch cao phẳng`): mỗi quy cách một tag, nên mỗi tag là một dòng trong bảng khối lượng. Bộ mã gồm sàn (`FL`), len chân tường (`SK`), tường hoàn thiện (`WL`), vách ngăn (`PA`), trần (`CL`), phào chỉ (`CO`), cửa đi (`DR`), cửa sổ (`WN`), vách kính (`GL`), đồ gỗ đóng tại chỗ (`JN`), nội thất rời (`FN`), đèn (`LT`), thiết bị vệ sinh (`SN`), thiết bị (`EQ`), rèm (`CU`), trang trí (`DE`), kết cấu hiện trạng (`EX`) và tham chiếu (`RF`). Mỗi tag nằm trong folder theo hạng mục (SketchUp 2021 trở lên) và có màu theo hạng mục, xem bằng nút *Color by tag* trong bảng Tags. Nếu mô hình đã có quy ước tag riêng thì Claude làm theo quy ước đó.
+- **Bảng khối lượng nội thất** (`interior_takeoff`): mỗi tag một dòng, đúng đơn vị của hạng mục: sàn và trần tính m² (mỗi tấm tính một lần dù mặt bị lật; trần dốc tính theo diện tích thật), tường, vách và kính tính m² một mặt (cửa đi, cửa sổ chỉ khoét một mặt tường vẫn được trừ), len và phào tính mét dài (kể cả len chạy vòng quanh phòng dựng bằng Follow Me), rèm tính rộng x cao, kết cấu hiện trạng tính m³, còn lại đếm số cái. Tường vẽ xiên vẫn đo đúng như tường thẳng. Có tổng theo hạng mục và cảnh báo: phần hình chưa nằm trong vật thể có tag, cả phòng vẽ thành một khối, vật thể trên tag đang ẩn (không tính trừ khi bạn yêu cầu), component lồng trong lớp hoàn thiện mà chưa có tag riêng. Có thể lưu ra file CSV để mở bằng Excel.
+- **Khối lượng theo phòng**: gom vật thể của mỗi phòng vào một group đặt tên phòng và không gắn tag (vd `Phòng khách`; group lồng nhau cho ra `Tầng 2 / Phòng ngủ 1`), rồi dùng `by_room` để chia mỗi dòng theo phòng. File CSV khi đó có thêm một cột cho mỗi phòng cạnh cột tổng. `make_group` dùng để tạo group phòng.
 - **Bóc khối lượng theo tag hoặc vật liệu**: cả mô hình hoặc chỉ phần đang chọn; tổng diện tích mặt, số mặt, chiều dài cạnh, thể tích khối đặc, số lượng component. Lưu ý `face_area_m2` là tổng MỌI mặt (khối đặc gồm mặt trên, dưới, cạnh), không phải diện tích sàn.
 - **Chụp ảnh giữ nguyên góc nhìn**: Claude xem ảnh viewport trực tiếp; nếu chụp ở góc khác (iso, top, front...), camera chỉ đổi tạm và được trả lại góc nhìn của bạn sau khi chụp.
 - **`run_ruby` là một bước Undo**: khi không có công cụ phù hợp, Claude chạy code Ruby API; cả đoạn code là một bước Undo, lỗi thì thay đổi dở dang được hủy và thông báo chỉ ra dòng bị lỗi.
@@ -40,7 +43,7 @@ Pavilion demo này được dựng hoàn toàn bằng các tool MCP (`create_box
 Claude Desktop
     |  MCP qua stdio
     v
-sketchup-mcp-1.2.0.mcpb        MCP server Node.js, chạy bằng Node có sẵn trong Claude Desktop
+sketchup-mcp-1.3.0.mcpb        MCP server Node.js, chạy bằng Node có sẵn trong Claude Desktop
     |  TCP 127.0.0.1:9876 (chỉ trong máy)
     v
 SU MCP Bridge                  plugin Ruby trong SketchUp, tự bật khi mở SketchUp
@@ -62,16 +65,16 @@ Tải từ [bản phát hành mới nhất](https://github.com/2ez4gcx/sketchup-
 
 | File | Là gì |
 |---|---|
-| `sketchup-mcp-1.2.0.mcpb` | Extension cho Claude Desktop (file chính) |
-| `su_mcp-1.2.0.rbz` | Plugin SketchUp (SU MCP Bridge), chỉ cần khi cài tay |
-| `SketchUpMCP_v1.2.0.zip` | Trọn bộ: extension, plugin, hướng dẫn (HTML + PDF, tiếng Anh và tiếng Việt), câu lệnh mẫu, changelog, giấy phép |
-| `SketchUp-MCP-Guide-1.2.0.pdf` | Riêng hướng dẫn tiếng Anh |
+| `sketchup-mcp-1.3.0.mcpb` | Extension cho Claude Desktop (file chính) |
+| `su_mcp-1.3.0.rbz` | Plugin SketchUp (SU MCP Bridge), chỉ cần khi cài tay |
+| `SketchUpMCP_v1.3.0.zip` | Trọn bộ: extension, plugin, hướng dẫn (HTML + PDF, tiếng Anh và tiếng Việt), câu lệnh mẫu, changelog, giấy phép |
+| `SketchUp-MCP-Guide-1.3.0.pdf` | Riêng hướng dẫn tiếng Anh |
 
 ## Cài đặt
 
-1. **Cài extension vào Claude Desktop**: *Settings > Extensions* → kéo thả `sketchup-mcp-1.2.0.mcpb` vào cửa sổ, hoặc *Advanced settings > Install Extension...* rồi chọn file → *Install*. Bản này chưa ký số nên Claude có thể cảnh báo *unsigned*: chỉ cài file lấy từ bản phát hành của dự án hoặc tự build. Bản Claude từ Microsoft Store không mở được file `.mcpb` bằng nhấp đúp, hãy cài qua Settings.
+1. **Cài extension vào Claude Desktop**: *Settings > Extensions* → kéo thả `sketchup-mcp-1.3.0.mcpb` vào cửa sổ, hoặc *Advanced settings > Install Extension...* rồi chọn file → *Install*. Bản này chưa ký số nên Claude có thể cảnh báo *unsigned*: chỉ cài file lấy từ bản phát hành của dự án hoặc tự build. Bản Claude từ Microsoft Store không mở được file `.mcpb` bằng nhấp đúp, hãy cài qua Settings.
 2. **Cài SU MCP Bridge vào SketchUp**: trong chat mới, gõ *"Cài SU MCP Bridge vào SketchUp"* (Claude gọi `install_sketchup_bridge`, bấm *Allow*). Hoặc cài tay: *Extensions > Extension Manager > Install Extension* (SketchUp 2017-2020: *Window > Extension Manager*) → chọn `su_mcp.rbz`. Nếu SketchUp không nạp plugin chưa ký số, chọn *Approve Unidentified Extensions* trong Extension Loading Policy (nếu quy định IT cho phép).
-3. **Thoát hẳn SketchUp rồi mở lại**, vào *Extensions > SU MCP Bridge > Status* phải thấy `SU MCP Bridge v1.2.0: RUNNING on 127.0.0.1:9876`. Sau đó gõ "Ping SketchUp" trong Claude.
+3. **Thoát hẳn SketchUp rồi mở lại**, vào *Extensions > SU MCP Bridge > Status* phải thấy `SU MCP Bridge v1.3.0: RUNNING on 127.0.0.1:9876`. Sau đó gõ "Ping SketchUp" trong Claude.
 
 Tùy chọn trong *Settings > Extensions > SketchUp MCP > Configure*: cổng (mặc định 9876) và thời gian chờ mỗi lệnh (mặc định 120 giây). Đổi cổng thì phải đổi cả trong SketchUp (*Extensions > SU MCP Bridge > Change port...*) và khởi động lại SketchUp. Khi cập nhật, luôn cập nhật **cả hai** phần.
 
@@ -81,7 +84,7 @@ Câu lệnh mẫu: [`mcpb/release-docs/vi/CAU_LENH_MAU.txt`](mcpb/release-docs/v
 
 Cài một chạm bằng file `.mcpb` chỉ có trên Claude Desktop. Server là MCP chuẩn (stdio) nên ứng dụng nào chạy được MCP server trên máy đều dùng được, nhưng cần cài **Node.js 18+**.
 
-1. Giải nén file `.mcpb` (thực chất là file zip): `mkdir C:\Tools\sketchup-mcp` rồi `tar -xf sketchup-mcp-1.2.0.mcpb -C C:\Tools\sketchup-mcp` (chạy trong Command Prompt/PowerShell, không dùng Git Bash; hoặc đổi đuôi file thành `.zip` rồi *Extract All*). Server nằm ở `C:/Tools/sketchup-mcp/server/index.mjs`.
+1. Giải nén file `.mcpb` (thực chất là file zip): `mkdir C:\Tools\sketchup-mcp` rồi `tar -xf sketchup-mcp-1.3.0.mcpb -C C:\Tools\sketchup-mcp` (chạy trong Command Prompt/PowerShell, không dùng Git Bash; hoặc đổi đuôi file thành `.zip` rồi *Extract All*). Server nằm ở `C:/Tools/sketchup-mcp/server/index.mjs`.
 2. Khai báo server trong ứng dụng (lệnh `node`, đối số là đường dẫn trên). Cấu hình mẫu cho từng ứng dụng: xem mục **Other MCP clients** trong [README.md](README.md#other-mcp-clients).
 3. Cài bridge vào SketchUp như bước 2–3 ở trên, rồi khởi động lại SketchUp.
 
@@ -99,7 +102,7 @@ Screenshot cần model đọc được ảnh. Nếu máy đã có một SketchUp
 ## Lưu ý an toàn
 
 - **Chỉ trong máy**: bridge chỉ nghe trên `127.0.0.1`, máy khác trong mạng không kết nối được. Socket không có xác thực, nên chương trình khác chạy trên cùng máy vẫn gửi lệnh được khi bridge đang bật; muốn tắt trong phiên làm việc này, dùng *Extensions > SU MCP Bridge > Stop server* (lần mở SketchUp sau sẽ tự bật lại).
-- **Giữ chế độ hỏi xin phép**: không chọn "Always allow" cho `run_ruby`, `delete_entities`, `undo`, `save_model`, `open_model`, `new_model`, `export_file`, `export_png`.
+- **Giữ chế độ hỏi xin phép**: không chọn "Always allow" cho `run_ruby`, `delete_entities`, `undo`, `save_model`, `open_model`, `new_model`, `export_file`, `export_png`, `interior_takeoff` (các lệnh xuất, và lệnh bóc khối lượng khi lưu CSV, có thể ghi đè file).
 - **`run_ruby` chạy code Ruby bất kỳ** trong SketchUp, không giới hạn thời gian. Đọc kỹ code trước khi cho phép; vòng lặp vô hạn sẽ làm SketchUp đứng và phải đóng bằng Task Manager.
 - **Mỗi lần sửa là một bước Undo**: sai thì <kbd>Ctrl</kbd>+<kbd>Z</kbd> hoặc nhờ Claude undo.
 - **Làm việc trên bản sao** của file dự án; `save_model` không có đường dẫn sẽ ghi đè file hiện tại.

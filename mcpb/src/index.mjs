@@ -33,7 +33,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 //  - model-editing commands (one Undo step): may already have run, check first, undo if duplicated;
 //  - commands without an Undo step (undo, save/open/export file): may already have run, check first, do NOT use undo.
 const READ_ONLY_CMDS = new Set(['ping', 'model_info', 'list_tags', 'list_components', 'list_materials',
-  'selection_info', 'quantity_takeoff', 'screenshot', 'set_view', 'select_entities']);
+  'selection_info', 'quantity_takeoff', 'measure_tags', 'screenshot', 'set_view', 'select_entities']);
 const NO_UNDO_CMDS = new Set(['undo', 'save_model', 'open_model', 'new_model', 'export_file', 'export_png']);
 
 function afterSendHint(cmd) {
@@ -58,6 +58,61 @@ function compareVersions(a, b) {
     if (d) return d;
   }
   return 0;
+}
+
+// ---------------------------------------------------------------- interior tag standard
+// Tag name "<CODE>-<NN> <description>": one tag = one specification (material + size/thickness + finish) = one line of
+// the bill of quantities. measure = unit interior_takeoff uses for the category; color = category color for
+// Tags panel > Color by tag (each number gets a lighter/darker shade); en/vi = category folder name (SketchUp 2021+).
+const TAG_STANDARD = {
+  FL: { en: 'Floor finishes', vi: 'Sàn', measure: 'plan_area', color: '#b5835a' },
+  SK: { en: 'Skirting', vi: 'Len chân tường', measure: 'length', color: '#7a5230' },
+  WL: { en: 'Wall finishes', vi: 'Tường hoàn thiện', measure: 'wall_area', color: '#d9c39a' },
+  PA: { en: 'Partitions', vi: 'Vách ngăn', measure: 'wall_area', color: '#a6a6a6' },
+  CL: { en: 'Ceilings', vi: 'Trần', measure: 'plan_area', color: '#9cc3e6' },
+  CO: { en: 'Cornices and trims', vi: 'Phào chỉ', measure: 'length', color: '#5b8fc7' },
+  DR: { en: 'Doors', vi: 'Cửa đi', measure: 'count', color: '#8e5ea2' },
+  WN: { en: 'Windows', vi: 'Cửa sổ', measure: 'count', color: '#4f86c6' },
+  GL: { en: 'Glass partitions', vi: 'Vách kính', measure: 'wall_area', color: '#7fd1d8' },
+  JN: { en: 'Built-in joinery', vi: 'Đồ gỗ đóng tại chỗ', measure: 'count', color: '#d9822b' },
+  FN: { en: 'Loose furniture', vi: 'Nội thất rời', measure: 'count', color: '#e3a857' },
+  LT: { en: 'Lighting', vi: 'Đèn', measure: 'count', color: '#f2d43d' },
+  SN: { en: 'Sanitary ware', vi: 'Thiết bị vệ sinh', measure: 'count', color: '#3fb6a8' },
+  EQ: { en: 'Equipment and appliances', vi: 'Thiết bị', measure: 'count', color: '#7f8c8d' },
+  CU: { en: 'Curtains and blinds', vi: 'Rèm', measure: 'elevation_area', color: '#c0504d' },
+  DE: { en: 'Decor and accessories', vi: 'Trang trí', measure: 'count', color: '#5aa55a' },
+  EX: { en: 'Existing structure', vi: 'Kết cấu hiện trạng', measure: 'volume', color: '#595959' },
+  RF: { en: 'Reference (not measured)', vi: 'Tham chiếu (không tính)', measure: null, color: '#c8c8c8' },
+};
+const EXCLUDED_CODES = ['RF'];
+// Letters only Vietnamese uses (not French/Spanish/Portuguese accents such as é, à, ã, ô), checked on the NFC form.
+const VI_CHARS = /[ăđơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]/i;
+
+/** "FL-01 Floor" -> {code: 'FL', num: 1, codeNN: 'FL-01'}; "LT Lighting" -> {code: 'LT'}; "Walls" -> {} (same rule as the bridge). */
+function tagCode(name) {
+  const m = String(name ?? '').replace(/^[ \t\r\n\f\v]+|[ \t\r\n\f\v]+$/g, '')
+    .match(/^([A-Za-z]{2,3})(?:[-_ ]?(\d{1,3}))?(?=[ \t\r\n\f\v\-_.:]|$)/);
+  if (!m) return {};
+  const code = m[1].toUpperCase();
+  return m[2] ? { code, num: Number(m[2]), codeNN: `${code}-${m[2].padStart(2, '0')}` } : { code };
+}
+
+/** Category color, alternately lighter/darker for each tag number (1 = base color). */
+function shade(hex, n) {
+  const f = [0, 0.3, -0.25, 0.5, -0.4, 0.15, -0.12, 0.65][(Math.max(1, n) - 1) % 8];
+  return [1, 3, 5].map((i) => {
+    const v = parseInt(hex.slice(i, i + 2), 16);
+    return Math.round(f >= 0 ? v + (255 - v) * f : v * (1 + f));
+  });
+}
+
+/** Folder + color of a tag that follows the standard, else undefined. language: 'en' | 'vi' | undefined (= guess from the name). */
+function tagStyle(name, language) {
+  const { code, num } = tagCode(name);
+  const cat = code && TAG_STANDARD[code];
+  if (!cat) return undefined;
+  const lang = language || (VI_CHARS.test(String(name).normalize('NFC')) ? 'vi' : 'en');
+  return { folder: `${code} ${cat[lang]}`, folder_code: code, color: shade(cat.color, num || 1) };
 }
 
 // Env values coming from the manifest user_config are always strings; if not configured they may still be the literal "${user_config.x}".
@@ -224,6 +279,16 @@ const server = new McpServer(
       '5. If the result is wrong, call undo right away and redo it with corrected parameters; do not stack fixes on wrong geometry.',
       '6. Ids are only valid in the current SketchUp session (they change after open_model or a restart); take ids from tool results, never guess.',
       '7. If a modelling command times out it may already have run: check before repeating. Every model-editing tool is one Undo step.',
+      '8. Tag like a professional: call list_tags first and keep a tag scheme the model already has. Otherwise name tags ' +
+        '"<CODE>-<NN> <description>" (codes: see setup_tags), e.g. "FL-01 Engineered oak floor 12mm": one tag = one specification ' +
+        '(material, size/thickness, finish) = one BOQ line; same spec, same tag; a new spec takes the next number. Write the description ' +
+        'in the user\'s language. Create the tags with setup_tags, then pass tag= to every create_*/insert_component call. Tag groups and ' +
+        'components, not raw faces/edges; nothing new stays untagged except room groups.',
+      '9. Model for takeoff: each finish is its own group (floor finish, ceiling board, one thin group per wall run, one group per ' +
+        'straight skirting/cornice run), not paint on a shared box, named "<code> <room> - <location>"; doors, furniture, lights: one ' +
+        'group/component each. Rooms: one named group without a tag per room (make_group), nested for levels.',
+      '10. Quantities: interior_takeoff gives the bill of quantities (by_room=true splits it by room); report its warnings. ' +
+        'quantity_takeoff only gives raw totals.',
     ].join('\n'),
   },
 );
@@ -237,10 +302,14 @@ function text(result) {
   return { content: [{ type: 'text', text: JSON.stringify(result ?? null) }] };
 }
 
-/** Register a tool that just forwards its arguments to the SketchUp command of the same name. */
-function bridgeTool(name, description, inputSchema, annotations) {
-  server.registerTool(name, { description, inputSchema, annotations }, async (args) => text(await call(name, args)));
+/** Register a tool that forwards its arguments (after prep) to the SketchUp command of the same name. */
+function bridgeTool(name, description, inputSchema, annotations, prep = (a) => a) {
+  server.registerTool(name, { description, inputSchema, annotations }, async (args) => text(await call(name, prep(args))));
 }
+
+// A NEW tag that follows the standard is created in its category folder with its category color (the bridge never
+// restyles an existing tag; older bridges ignore tag_style).
+const withTagStyle = (a) => (a && a.tag ? { ...a, tag_style: tagStyle(a.tag) } : a);
 
 // Optional[...] = None in the Python version: accepts null too, omitted when sent to SketchUp.
 const opt = (schema) => schema.nullish();
@@ -289,7 +358,7 @@ bridgeTool('model_info',
   {}, READ);
 
 bridgeTool('list_tags',
-  'List tags (layers): name, visible/hidden, and number of entities using the tag (including inside definitions).',
+  'List tags (layers): name, visible/hidden, color, folder (SketchUp 2021+) and number of entities using the tag (including inside definitions).',
   {}, READ);
 
 bridgeTool('list_components',
@@ -309,12 +378,360 @@ bridgeTool('selection_info',
 bridgeTool('quantity_takeoff',
   'Quantity takeoff: walks the whole model recursively (or only the selection) and totals by tag or material:\n' +
   'face area (m2, one side), face count, total edge length (m), solid volume (m3) and\n' +
-  'instance count per component. Untagged/unpainted entities inherit from their parent group.',
+  'instance count per component. Untagged/unpainted entities inherit from their parent group.\n' +
+  'Raw totals only (face area counts every face of a solid): for a bill of quantities use interior_takeoff.',
   {
     group_by: z.enum(['tag', 'material']).default('tag').describe('Group by "tag" (layer) or by "material"'),
     selection_only: z.boolean().default(false),
     include_hidden: z.boolean().default(false),
   }, READ);
+
+// ---------------------------------------------------------------- interior bill of quantities
+const MEASURES = ['plan_area', 'wall_area', 'sheet_area', 'side_area', 'length', 'elevation_area', 'count', 'volume'];
+const MEASURE_FIELD = {
+  plan_area: 'plan_area_m2', wall_area: 'wall_area_m2', sheet_area: 'sheet_area_m2', side_area: 'side_area_m2', length: 'length_m',
+  elevation_area: 'elevation_area_m2', count: 'count', volume: 'volume_m3',
+};
+const MEASURE_UNIT = {
+  plan_area: 'm2', wall_area: 'm2', sheet_area: 'm2', side_area: 'm2', elevation_area: 'm2', length: 'm', count: 'pcs', volume: 'm3',
+};
+const AREA_MEASURES = new Set(['plan_area', 'wall_area', 'sheet_area', 'side_area']);
+const CSV_TEXT = {
+  en: {
+    head: ['Code', 'Tag', 'Category', 'Quantity', 'Unit', 'Measured as', 'Count', 'Floor/ceiling area (m²)', 'Wall area, one side (m²)',
+      'Sheet area, one side (m²)', 'Vertical faces (m²)', 'Length (m)', 'Width x height (m²)', 'Volume (m³)', 'Items', 'Warnings'],
+    unit: { m2: 'm²', m: 'm', pcs: 'pcs', m3: 'm³' },
+    total: 'Total', no_room: '(no room)',
+    measure: { plan_area: 'floor/ceiling area', wall_area: 'wall area, one side', sheet_area: 'one side', side_area: 'vertical faces',
+      length: 'length', elevation_area: 'width x height', count: 'count', volume: 'volume' },
+  },
+  vi: {
+    head: ['Mã', 'Tag', 'Hạng mục', 'Khối lượng', 'Đơn vị', 'Cách đo', 'Số lượng', 'Diện tích sàn/trần (m²)', 'Diện tích tường, một mặt (m²)',
+      'Diện tích tấm, một mặt (m²)', 'Tổng mặt đứng (m²)', 'Chiều dài (m)', 'Rộng x cao (m²)', 'Thể tích (m³)', 'Chi tiết', 'Cảnh báo'],
+    unit: { m2: 'm²', m: 'md', pcs: 'cái', m3: 'm³' },
+    total: 'Tổng', no_room: '(chưa có phòng)',
+    measure: { plan_area: 'diện tích sàn/trần', wall_area: 'diện tích tường một mặt', sheet_area: 'diện tích một mặt',
+      side_area: 'tổng mặt đứng', length: 'chiều dài', elevation_area: 'rộng x cao', count: 'đếm', volume: 'thể tích' },
+  },
+};
+const round = (v, d) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 10 ** d) / 10 ** d : v);
+const BOM = String.fromCharCode(0xfeff); // UTF-8 byte order mark: makes Excel read the CSV as UTF-8
+
+/** Unit overrides normalized: keys are tag names (as given) or codes ("lt-5" -> "LT-05", "lt" -> "LT").
+ *  A short key that is the exact name of a tag in the model (e.g. a tag named "TV") stays a tag name. */
+function normalizeMeasures(measures, tagNames = []) {
+  const byTag = new Map();
+  const byCode = new Map();
+  const names = new Set(tagNames.map((n) => String(n).trim()));
+  for (const [k, v] of Object.entries(measures || {})) {
+    const key = String(k).trim();
+    if (!names.has(key) && /^[A-Za-z]{2,3}(?:[-_ ]?\d{1,3})?$/.test(key)) {
+      const tc = tagCode(key);
+      byCode.set(tc.codeNN || tc.code, { key: k, v });
+    } else {
+      byTag.set(key, { key: k, v });
+    }
+  }
+  return { byTag, byCode, used: new Set() };
+}
+
+/** Unit picked for a tag: overrides by tag name, then "LT-05", then "LT"; else the category default. */
+function boqMeasure(tag, over) {
+  const { code, codeNN } = tagCode(tag);
+  const hit = over.byTag.get(String(tag).trim()) || (codeNN && over.byCode.get(codeNN)) || (code && over.byCode.get(code));
+  if (hit) {
+    over.used.add(hit.key);
+    return hit.v;
+  }
+  return (code && TAG_STANDARD[code] && TAG_STANDARD[code].measure) || null;
+}
+
+/** Quantity of a bridge measurement row in a unit (rounded like a BOQ: 2 decimals, m³ 3, count as is). */
+function boqQuantity(t, measure) {
+  const raw = measure ? t[MEASURE_FIELD[measure]] : null;
+  return raw == null ? null : measure === 'count' ? raw : round(raw, measure === 'volume' ? 3 : 2);
+}
+
+/** One BOQ row from the bridge's per-tag measurements; overrides = {tag | "LT-05" | "LT": measure}. */
+function boqRow(t, overrides, lang) {
+  const { code, codeNN } = tagCode(t.tag);
+  const cat = code ? TAG_STANDARD[code] : undefined;
+  const measure = boqMeasure(t.tag, overrides);
+  const list = (k) => (Array.isArray(t[k]) ? t[k] : []);
+  const parts = (a) => `${a.length}${a.length >= 10 ? '+' : ''} part(s): ` +
+    a.map((o) => `${[o.name, o.id != null ? `(id ${o.id})` : ''].filter(Boolean).join(' ') || '?'} ${(o.size_mm || []).join(' x ')} mm` +
+      `${o.sides_m2 ? ` [sides ${o.sides_m2.join(' / ')} m²]` : ''}`).join('; ');
+  const warnings = [];
+  if (!measure) {
+    warnings.push('No unit: the tag name does not start with a known code (e.g. "FL-01 ..."). Rename the tag, or pass ' +
+      `measures {"${t.tag}": "plan_area" | "wall_area" | "length" | "count" | ...}.`);
+  }
+  if ((measure === 'wall_area' || measure === 'sheet_area') && list('not_thin').length) {
+    warnings.push(`Not thin, so NOT included: ${parts(list('not_thin'))}. Model each wall/partition/cladding as a thin group ` +
+      'per straight wall run; side_area_m2 (all vertical faces) is given for reference.');
+  }
+  if (measure === 'wall_area' && list('not_upright').length) {
+    warnings.push(`Thin but lying flat (not a wall), so NOT included: ${parts(list('not_upright'))}.`);
+  }
+  if ((measure === 'wall_area' || measure === 'sheet_area') && list('not_straight').length) {
+    warnings.push(`Curved or segmented, measured approximately as half of its vertical faces: ${parts(list('not_straight'))}. ` +
+      'Split it into straight runs for an exact figure.');
+  }
+  if ((measure === 'wall_area' || measure === 'sheet_area') && list('uneven_sides').length) {
+    warnings.push(`The two sides differ (an opening cut in one side only, or a pilaster/niche on one side?), the smaller side was used: ${parts(list('uneven_sides'))}.`);
+  }
+  if (measure === 'plan_area' && !t.plan_area_m2 && t.count) {
+    warnings.push('No horizontal or sloped faces found: check that these objects are floors/ceilings.');
+  }
+  const nested = Object.entries(t.nested_components || {});
+  if (AREA_MEASURES.has(measure) && nested.length) {
+    const openings = nested.filter(([n]) => n.startsWith('(opening) '));
+    const others = nested.filter(([n]) => !n.startsWith('(opening) '));
+    if (others.length) {
+      warnings.push(`Contains components without a tag of their own, measured as part of this line: ` +
+        `${others.map(([n, c]) => `${n} x${c}`).join(', ')}. Tag them (e.g. DR-01, FN-01) if they are separate items.`);
+    }
+    if (openings.length) {
+      warnings.push(`Untagged doors/windows inside (not measured here, tag them DR/WN to count them): ` +
+        `${openings.map(([n, c]) => `${n.slice(10)} x${c}`).join(', ')}.`);
+    }
+  }
+  if (measure === 'volume' && t.not_solid) warnings.push(`${t.not_solid} object(s) are not solid: their volume is missing.`);
+  if (measure === 'count' && !t.count && t.loose_faces) {
+    warnings.push('Only loose faces carry this tag: make each item a group or component so it can be counted.');
+  }
+  return {
+    code: codeNN || code || null,
+    tag: t.tag,
+    category: cat ? cat[lang] : null,
+    quantity: boqQuantity(t, measure),
+    unit: measure ? MEASURE_UNIT[measure] : null,
+    measured_as: measure,
+    count: t.count,
+    items: t.items,
+    plan_area_m2: round(t.plan_area_m2, 2),
+    wall_area_m2: round(t.wall_area_m2, 2),
+    sheet_area_m2: round(t.sheet_area_m2, 2),
+    side_area_m2: round(t.side_area_m2, 2),
+    length_m: round(t.length_m, 2),
+    elevation_area_m2: round(t.elevation_area_m2, 2),
+    volume_m3: round(t.volume_m3, 3),
+    ...(warnings.length ? { warnings } : {}),
+  };
+}
+
+/** CSV text for Excel: UTF-8 with BOM, CRLF; semicolon format = ";" separator and decimal comma.
+ *  With rooms: one column per room (quantity in the row's unit) after the total. */
+function boqCsv(rows, lang, format, rooms) {
+  const L = CSV_TEXT[lang];
+  const sep = format === 'semicolon' ? ';' : ',';
+  const num = (v) => (v == null ? '' : format === 'semicolon' ? String(v).replace('.', ',') : String(v));
+  const cell = (v) => {
+    let s = v == null ? '' : String(v);
+    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; // never let Excel read a cell as a formula
+    return /["\r\n;,]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const unit = (r) => cell(r.unit ? L.unit[r.unit] : '');
+  const lines = [];
+  if (rooms) {
+    const last = L.head.length - 1; // Warnings
+    lines.push([L.head[0], L.head[1], L.head[2], L.head[4], L.total, ...rooms.map((rm) => rm || L.no_room), L.head[5], L.head[last]]
+      .map(cell).join(sep));
+    for (const r of rows) {
+      lines.push([cell(r.code), cell(r.tag), cell(r.category), unit(r), num(r.quantity),
+        ...rooms.map((rm) => num(r.by_room ? r.by_room[rm || L.no_room] : null)),
+        cell(r.measured_as ? L.measure[r.measured_as] : ''), cell((r.warnings || []).join(' '))].join(sep));
+    }
+  } else {
+    lines.push(L.head.map(cell).join(sep));
+    for (const r of rows) {
+      lines.push([
+        cell(r.code), cell(r.tag), cell(r.category), num(r.quantity), unit(r),
+        cell(r.measured_as ? L.measure[r.measured_as] : ''), num(r.count), num(r.plan_area_m2), num(r.wall_area_m2),
+        num(r.sheet_area_m2), num(r.side_area_m2), num(r.length_m), num(r.elevation_area_m2), num(r.volume_m3),
+        cell(Object.entries(r.items || {}).map(([n, c]) => `${n} x${c}`).join('; ')), cell((r.warnings || []).join(' ')),
+      ].join(sep));
+    }
+  }
+  return BOM + lines.join('\r\n') + '\r\n';
+}
+
+const TagSpec = z.union([Str, z.object({ name: Str, color: opt(Str), folder: opt(Str) })]);
+
+server.registerTool('setup_tags', {
+  description:
+    'Create tags in one Undo step, following the interior tag standard "<CODE>-<NN> <description>", codes: ' +
+    Object.entries(TAG_STANDARD).map(([c, v]) => `${c} ${v.en.toLowerCase()}`).join(', ') + '. ' +
+    'Each tag goes into its category folder (SketchUp 2021+, e.g. "FL Floor finishes") and gets its category color ' +
+    '(Tags panel > Color by tag). Use it to create every tag of a finish schedule at once, before modelling. Existing tags keep ' +
+    'their folder and color unless update_existing=true. Tags without a known code get no folder/color unless given.',
+  inputSchema: {
+    tags: jsonish(z.array(TagSpec).min(1)).describe(
+      'Tag names, e.g. ["FL-01 Engineered oak floor 12mm", "WL-01 Paint, white matt"], or objects {name, color "#RRGGBB", folder}'),
+    language: opt(z.enum(['en', 'vi'])).describe(
+      'Language of NEW category folder names; default: Vietnamese when the tag name has Vietnamese diacritics, else English'),
+    update_existing: z.boolean().default(false).describe('true = also move EXISTING tags into their category folder and recolor them'),
+  },
+  annotations: EDIT_IDEMPOTENT,
+}, async ({ tags, language, update_existing }) => {
+  const list = tags.map((t) => {
+    const spec = typeof t === 'string' ? { name: t } : t;
+    const name = String(spec.name).trim();
+    const std = tagStyle(name, language || undefined) || {};
+    return {
+      name,
+      folder: spec.folder || std.folder,
+      folder_code: spec.folder ? undefined : std.folder_code,
+      color: spec.color || std.color,
+    };
+  });
+  return text(await call('create_tags', { tags: list, update_existing }));
+});
+
+server.registerTool('interior_takeoff', {
+  description:
+    'Bill of quantities (BOQ) for interior work: one row per tag (= one specification), with the unit its category needs:\n' +
+    'FL floors and CL ceilings -> area m², once per board whatever its face orientation, sloped parts at their real area; WL wall finishes, ' +
+    'PA partitions, GL glass -> area of ONE side of each thin upright piece (openings cut in one side deducted), m²; SK skirting, ' +
+    'CO cornices -> length m (runs made with Follow Me too); ' +
+    'CU curtains -> width x height m²; EX existing structure -> volume m³; DR, WN, JN, FN, LT, SN, EQ, DE -> count ' +
+    '(outermost group/component per tag, by definition). Every row also has all the other measures, and the totals per category. ' +
+    'by_room=true adds the quantity of every row per room (a room = a named group WITHOUT a tag, e.g. "Living room"; ' +
+    'otherwise taken from object names "<code> <room> - <location>"). RF reference tags are skipped. Warnings list geometry ' +
+    'that is in no tagged object and parts that could not be measured (e.g. a wall that is not a thin object). ' +
+    'csv_path also writes the table to a CSV file for Excel (with by_room: one column per room).',
+  inputSchema: {
+    selection_only: z.boolean().default(false).describe('Only the selected objects (e.g. one room)'),
+    include_hidden: z.boolean().default(false).describe('Also measure hidden objects and objects on hidden tags/folders (they are listed in warnings otherwise)'),
+    by_room: z.boolean().default(false).describe('Also split every row by room (rooms = named groups without a tag)'),
+    measures: opt(jsonish(z.record(Str, z.enum(MEASURES)))).describe(
+      'Unit override per tag name, per code-number ("LT-05") or per code ("JN"), e.g. {"LT-05": "length", "JN": "elevation_area"}'),
+    thin_ratio: z.number().gt(0).lt(1).default(0.5).describe('A piece is thin when its thickness <= thin_ratio x its smaller in-plane size'),
+    max_thickness_mm: z.number().positive().default(600).describe('Thicker pieces are never taken for a wall/board (e.g. a corridor drawn as one box)'),
+    language: z.enum(['en', 'vi']).default('en').describe('Language of category names, room placeholder and CSV headers/units'),
+    csv_path: opt(Str).describe("Absolute path of a .csv file to write, e.g. 'D:/BOQ/takeoff.csv' (UTF-8, opens in Excel)"),
+    csv_format: z.enum(['comma', 'semicolon']).default('comma').describe(
+      'semicolon = ";" separators and decimal commas, for Excel with Vietnamese/European regional settings'),
+    overwrite: z.boolean().default(false).describe('Replace csv_path if it already exists'),
+  },
+  // destructive: with overwrite=true it replaces an existing .csv file
+  annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+}, async ({ selection_only, include_hidden, by_room, measures, thin_ratio, max_thickness_mm, language, csv_path, csv_format, overwrite }) => {
+  const csvFile = csv_path ? await checkCsvPath(csv_path, overwrite) : null; // before measuring: fail fast
+  const r = (await call('measure_tags', {
+    selection_only, include_hidden, by_room, thin_ratio, max_thickness_mm, exclude_codes: EXCLUDED_CODES,
+  })) || {};
+  const over = normalizeMeasures(measures, (Array.isArray(r.tags) ? r.tags : []).map((t) => t.tag));
+  const L = CSV_TEXT[language];
+  const rows = (Array.isArray(r.tags) ? r.tags : []).filter((t) => t.tag !== 'Untagged').map((t) => boqRow(t, over, language));
+
+  let rooms;
+  if (by_room) {
+    if (!Array.isArray(r.rooms)) {
+      throw new SketchUpError('The bridge in SketchUp does not split quantities by room (it is older than this MCP server): ' +
+        'run install_sketchup_bridge, then fully quit and reopen SketchUp.');
+    }
+    const byTag = new Map(rows.map((row) => [row.tag, row]));
+    const seen = new Set();
+    const raw = new Map(); // row -> {room: unrounded quantity}
+    for (const t of r.rooms) {
+      const row = byTag.get(t.tag);
+      if (!row || !row.measured_as) continue;
+      seen.add(t.room || '');
+      const v = t[MEASURE_FIELD[row.measured_as]];
+      if (typeof v !== 'number') continue;
+      const m = raw.get(row) || raw.set(row, {}).get(row);
+      const room = t.room || L.no_room;
+      m[room] = (m[room] || 0) + v;
+    }
+    for (const [row, m] of raw) {
+      row.by_room = {};
+      for (const [room, v] of Object.entries(m)) row.by_room[room] = row.measured_as === 'count' ? v : round(v, row.measured_as === 'volume' ? 3 : 2);
+    }
+    // natural order ("Bedroom 2" before "Bedroom 10"), objects outside any room last
+    rooms = [...seen].sort((a, b) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })));
+  }
+
+  const totals = {};
+  for (const row of rows) {
+    const code = tagCode(row.tag).code;
+    if (!code || !TAG_STANDARD[code] || row.quantity == null) continue;
+    const tot = totals[code] || (totals[code] = { category: TAG_STANDARD[code][language], quantity: 0, unit: row.unit, lines: 0 });
+    tot.lines += 1;
+    if (tot.unit === row.unit) tot.quantity = round(tot.quantity + row.quantity, 3);
+    else tot.unit = 'mixed';
+  }
+  for (const t of Object.values(totals)) if (t.unit === 'mixed') delete t.quantity;
+
+  const warnings = [];
+  const untagged = Array.isArray(r.untagged) ? r.untagged : [];
+  if (untagged.length) {
+    warnings.push(`Geometry in no tagged object, so it is in no BOQ line (${untagged.length}${untagged.length >= 50 ? '+' : ''} place(s)): ` +
+      untagged.slice(0, 15).map((u) => `${u.name || '?'}${u.id ? ` (id ${u.id})` : ''}${u.room ? ` in ${u.room}` : ''}: ${u.faces} faces`).join('; ') +
+      '. Put it in groups/components with a tag (set_tag), or ignore it if it is not part of the work.');
+  }
+  if (by_room && rooms && rooms.length === 1 && rooms[0] === '') {
+    warnings.push('No rooms found: put each room\'s objects in a named group without a tag (make_group), or name objects ' +
+      '"<code> <room> - <location>".');
+  }
+  const hiddenAll = Array.isArray(r.hidden) ? r.hidden : [];
+  const hidden = hiddenAll.filter((h) => h.tag !== 'Untagged');
+  for (const h of hiddenAll.filter((x) => x.tag === 'Untagged')) {
+    warnings.push(`Hidden groups without a tag (a hidden room or level?), nothing inside them was measured: ` +
+      `${(h.names || []).map((x) => `${x.name} (id ${x.id})`).join(', ') || `${h.objects} group(s)`}. Pass include_hidden=true to include them.`);
+  }
+  if (hidden.length) {
+    warnings.push(`Hidden, so NOT measured: ${hidden.map((h) => `${h.tag} (${h.objects} object(s)${h.hidden_tag ? ', tag or tag folder hidden' : ''})`).join('; ')}. ` +
+      'Pass include_hidden=true to include them (e.g. a ceiling hidden only to look at the plan).');
+  }
+  const unused = Object.keys(measures || {}).filter((k) => !over.used.has(k));
+  if (unused.length) warnings.push(`measures key(s) matching no tag: ${unused.join(', ')} (use a full tag name, "LT-05" or "LT").`);
+  const out = {
+    rows, totals,
+    ...(rooms ? { rooms: rooms.map((rm) => rm || L.no_room) } : {}),
+    ...(warnings.length ? { warnings } : {}),
+    ...(untagged.length ? { untagged } : {}),
+    ...(hiddenAll.length ? { hidden: hiddenAll } : {}),
+    excluded: r.excluded && Object.keys(r.excluded).length ? r.excluded : undefined,
+    selection_only: r.selection_only === true,
+    notes: [
+      'plan_area: non-vertical faces at their real area, once per closed board/slab. wall_area: one side of thin upright pieces ' +
+        '(the smaller side when they differ). sheet_area: one side of thin pieces in any orientation.',
+      'side_area: all vertical faces (e.g. the returns of a stepped ceiling). length: straight runs by their length, runs that turn ' +
+        '(Follow Me) by their swept length; parallel parts of one run (board + cap) count once. elevation_area: width x height of each object.',
+    ],
+  };
+  if (csvFile) {
+    try {
+      await fs.mkdir(path.dirname(csvFile), { recursive: true });
+      // 'wx' fails if the file appeared meanwhile, so it is never replaced without overwrite=true
+      await fs.writeFile(csvFile, boqCsv(rows, language, csv_format, rooms), { encoding: 'utf8', flag: overwrite ? 'w' : 'wx' });
+      out.csv = { path: csvFile, rows: rows.length, format: csv_format, by_room: !!rooms };
+    } catch (e) {
+      // keep the bill of quantities: only the file could not be written
+      out.csv = { path: csvFile, error: e.code === 'EEXIST' ? 'The file already exists: ask the user before replacing it (overwrite=true), or use another file name.' : `${e.code || ''} ${e.message}`.trim() };
+    }
+  }
+  return text(out);
+});
+
+/** Validated absolute .csv path (Windows: drive letter or UNC), checked before the takeoff runs. */
+async function checkCsvPath(csvPath, overwrite) {
+  const p = String(csvPath).trim();
+  // Windows: a drive letter (D:/... or D:\...) or a UNC share (\\server\share\... or //server/share/...)
+  const absolute = process.platform === 'win32'
+    ? /^([A-Za-z]:[\\/]|[\\/]{2}[^\\/]+[\\/][^\\/]+[\\/])/.test(p)
+    : path.isAbsolute(p);
+  if (!absolute) {
+    throw new Error(`csv_path must be an absolute path with a drive letter or a network share (e.g. D:/BOQ/takeoff.csv), got: ${p}`);
+  }
+  if (!/\.csv$/i.test(p)) throw new Error(`csv_path must end with .csv, got: ${p}`);
+  const full = path.resolve(p);
+  if (!overwrite && (await exists(full))) {
+    throw new Error(`${full} already exists: ask the user before replacing it (overwrite=true), or choose another file name.`);
+  }
+  return full;
+}
 
 // ---------------------------------------------------------------- modelling
 bridgeTool('create_box',
@@ -327,7 +744,7 @@ bridgeTool('create_box',
     height: z.number().describe('Size along the Z axis (mm), > 0'),
     origin: opt(Point).describe('MIN corner (bottom-left-front) [x,y,z] mm, NOT the center; default [0,0,0]'),
     name: opt(Str), tag: opt(Str), material: opt(Str), color: opt(Str),
-  }, EDIT);
+  }, EDIT, withTagStyle);
 
 bridgeTool('create_shape',
   'Draw a flat face from a polygon (list of [x,y,z] mm points, >= 3 coplanar points) in a new group.\n' +
@@ -336,14 +753,14 @@ bridgeTool('create_shape',
     points: jsonish(z.array(Point)).describe('Polygon vertices [[x,y,z],...] mm, >= 3 coplanar points, in order around the perimeter'),
     pushpull: opt(z.number()).describe('Extrusion thickness (mm); a horizontal face is pulled up along +Z'),
     name: opt(Str), tag: opt(Str), material: opt(Str), color: opt(Str),
-  }, EDIT);
+  }, EDIT, withTagStyle);
 
 bridgeTool('create_lines',
   'Draw a polyline through [x,y,z] mm points in a new group. close_face=true: closes back to the first point and creates a face (the result has face_created).',
   {
     points: jsonish(z.array(Point)), close_face: z.boolean().default(false),
     name: opt(Str), tag: opt(Str),
-  }, EDIT);
+  }, EDIT, withTagStyle);
 
 bridgeTool('insert_component',
   "Insert a component: from a .skp file (path, e.g. 'D:/Library/table.skp') or from a definition already in\n" +
@@ -353,7 +770,7 @@ bridgeTool('insert_component',
     position: opt(Point).describe('Insertion point (component origin) [x,y,z] mm'),
     rotation_deg: z.number().default(0),
     name: opt(Str), tag: opt(Str), material: opt(Str),
-  }, EDIT);
+  }, EDIT, withTagStyle);
 
 bridgeTool('transform_entities',
   'Move / rotate / scale entities. Empty entity_ids = use the current selection.\n' +
@@ -379,8 +796,19 @@ bridgeTool('set_material',
   }, EDIT_IDEMPOTENT);
 
 bridgeTool('set_tag',
-  'Assign a tag to entities (entity_ids or the current selection). A missing tag is created.',
-  { tag: Str, entity_ids: opt(Ids).describe(`${IDS_DESC} Empty = current selection.`) }, EDIT_IDEMPOTENT);
+  'Assign a tag to entities (entity_ids or the current selection). A missing tag is created (in its category folder with its ' +
+  'category color when it follows the tag standard). Tag groups/components, not raw faces or edges.',
+  { tag: Str, entity_ids: opt(Ids).describe(`${IDS_DESC} Empty = current selection.`) }, EDIT_IDEMPOTENT, withTagStyle);
+
+bridgeTool('make_group',
+  'Put existing entities into a new group (they must be at the level being edited, e.g. the top level). Use it for rooms: ' +
+  'a named group WITHOUT a tag (e.g. name "Living room") holding the finishes and items of that room, so interior_takeoff ' +
+  'can split quantities by room. With tag, it makes an assembly (e.g. several skirting runs).' + RETURNS,
+  {
+    entity_ids: Ids.describe(IDS_DESC),
+    name: opt(Str).describe('Group name, e.g. the room name "Living room" or "Level 2 / Bedroom 1" is built from nested rooms'),
+    tag: opt(Str).describe('Leave empty for a room'),
+  }, EDIT, withTagStyle);
 
 bridgeTool('delete_entities',
   'Delete entities by id (ids are required; never deletes by selection). Can be undone.',

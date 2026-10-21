@@ -23,12 +23,29 @@ KIỂM TRA KẾT NỐI
 - Các đối tượng tôi đang chọn là gì, kích thước bao bao nhiêu mm?
 - Tag nào đang ẩn? Vật liệu nào có texture?
 
-BÓC KHỐI LƯỢNG
-- Bóc khối lượng theo tag, lập bảng diện tích (m²) và thể tích (m³).
+ĐẶT TAG & BÓC KHỐI LƯỢNG NỘI THẤT (tag chuẩn "MÃ-số mô tả": FL sàn, SK len chân tường, WL tường hoàn thiện,
+PA vách ngăn, CL trần, CO phào chỉ, DR cửa đi, WN cửa sổ, GL vách kính, JN đồ gỗ đóng tại chỗ, FN nội thất rời,
+LT đèn, SN thiết bị vệ sinh, EQ thiết bị, CU rèm, DE trang trí, EX kết cấu hiện trạng, RF tham chiếu)
+- Tạo tag cho bảng vật liệu này: sàn gỗ kỹ thuật sồi 12 mm, gạch porcelain 600x600, sơn nước trắng mờ,
+  ốp gỗ veneer óc chó, trần thạch cao phẳng, trần thạch cao giật cấp, len gỗ sồi 80 mm, đèn downlight LED.
+  (Claude tạo FL-01, FL-02, WL-01, WL-02, CL-01, CL-02, SK-01, LT-01 trong các folder, có màu theo hạng mục)
+- Dựng sàn, tường, trần phòng khách (6000 x 4500 mm, trần cao 2800 mm) thành các group hoàn thiện riêng,
+  đặt tag đúng. Thêm len chân tường cho tất cả các tường.
+- Kiểm tra tag: liệt kê các vật thể còn Untagged và đặt tag cho chúng.
+- Bóc khối lượng nội thất theo tag.
+  (sàn và trần tính m² - phần dốc theo diện tích thật, tường/vách/kính tính m² một mặt, len và phào tính mét dài,
+   rèm tính m² rộng x cao, cửa/đồ rời/đèn đếm cái; đọc kỹ phần cảnh báo)
+- Chỉ tính các vật thể đang chọn (một phòng), và lưu ra D:/BOQ/phong-khach.csv.
+  (nếu Excel dồn hết vào một cột: "xuất CSV dạng chấm phẩy")
+- Tính đèn LED dây LT-05 theo mét dài thay vì đếm cái.   (Claude truyền measures {"LT-05": "length"})
+- Gom các vật thể phòng khách thành phòng tên "Phòng khách" (group có tên, KHÔNG gắn tag).
+- Bóc khối lượng theo phòng và lưu ra D:/BOQ/khoi-luong.csv.   (mỗi phòng một cột trong file CSV)
+- Tính cả các vật thể đang ẩn.   (mặc định vật thể trên tag ẩn chỉ được liệt kê trong phần cảnh báo)
+
+BÓC KHỐI LƯỢNG (tổng thô)
 - Bóc khối lượng theo vật liệu, chỉ tính phần đang chọn.
-- Tính diện tích MẶT TRÊN của các sàn tag "San" (diện tích sàn thực).   (Claude sẽ dùng run_ruby)
-  -> Lưu ý: face_area_m2 của bóc khối lượng là tổng MỌI mặt (khối đặc gồm mặt trên, mặt dưới, mặt cạnh),
-     không phải diện tích sàn. Thể tích chỉ tính cho group/component là khối đặc (solid).
+  -> Lưu ý: face_area_m2 của quantity_takeoff là tổng MỌI mặt (khối đặc gồm mặt trên, mặt dưới, mặt cạnh).
+     Khối lượng sàn, tường, trần hãy dùng bóc khối lượng nội thất ở trên.
 
 DỰNG HÌNH
 - Tạo khối hộp 2000 x 1000 x 750 mm tại gốc tọa độ, tên "Ban hop", vật liệu Gỗ sồi màu #B3A092.

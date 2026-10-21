@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.2ez4gcx/sketchup-mcp",
   "title": "SketchUp MCP",
-  "description": "Let AI assistants work in SketchUp: quantity takeoff, modeling, materials, screenshots, Ruby.",
-  "version": "1.2.0",
+  "description": "Let AI work in SketchUp: pro tagging, interior quantity takeoff by tag and room, modeling, Ruby.",
+  "version": "1.3.0",
   "websiteUrl": "https://github.com/2ez4gcx/sketchup-mcp",
   "repository": {
     "url": "https://github.com/2ez4gcx/sketchup-mcp",
@@ -12,17 +12,19 @@
   },
   "icons": [
     {
-      "src": "https://raw.githubusercontent.com/2ez4gcx/sketchup-mcp/v1.2.0/mcpb/icon.png",
+      "src": "https://raw.githubusercontent.com/2ez4gcx/sketchup-mcp/v1.3.0/mcpb/icon.png",
       "mimeType": "image/png",
-      "sizes": ["512x512"]
+      "sizes": [
+        "512x512"
+      ]
     }
   ],
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/2ez4gcx/sketchup-mcp/releases/download/v1.2.0/sketchup-mcp-1.2.0.mcpb",
-      "version": "1.2.0",
-      "fileSha256": "be6864a1f18bea06655be40e8a259f24a2457ba6c1300c13ed287dd11f6df234",
+      "identifier": "https://github.com/2ez4gcx/sketchup-mcp/releases/download/v1.3.0/sketchup-mcp-1.3.0.mcpb",
+      "version": "1.3.0",
+      "fileSha256": "eca889bb130800516d7b04c44c6c550ac5056f297e7ea2f1cf0edd2d053d5009",
       "transport": {
         "type": "stdio"
       },

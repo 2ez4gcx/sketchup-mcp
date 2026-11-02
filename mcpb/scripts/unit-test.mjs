@@ -347,6 +347,199 @@ if (process.platform === 'win32') {
     && JSON.parse(r.txt).rows.length > 0 && JSON.parse(r.txt).csv && JSON.parse(r.txt).csv.error, r.txt.slice(0, 300));
 }
 
+// 19: create_room (tag styles, language guess, labels)
+received.length = 0;
+r = await S.tool('create_room', {
+  name: 'Phòng khách', points: [[0, 0], [5000, 0], [5000, 4000], [0, 4000]], height: 2800,
+  floor: { tag: 'FL-01 Sàn gỗ' }, walls: { tag: 'WL-01 Sơn trắng', by_edge: { 2: { tag: 'WL-02 Ốp gỗ' } } },
+  openings: [{ edge: 1, offset: 500, width: 900, height: 2100, tag: 'DR-01 Cửa gỗ' }],
+});
+let cr = received.find((q) => q.cmd === 'create_room');
+check('create_room: tag_styles for every standard tag (also by_edge and openings)', cr && cr.params.tag_styles
+  && ['FL-01 Sàn gỗ', 'WL-01 Sơn trắng', 'WL-02 Ốp gỗ', 'DR-01 Cửa gỗ'].every((t) => cr.params.tag_styles[t] && cr.params.tag_styles[t].folder_code),
+  JSON.stringify(cr && cr.params.tag_styles));
+check('create_room: Vietnamese room name -> language vi; defaults level 0', cr && cr.params.language === 'vi' && cr.params.level === 0
+  && cr.params.openings[0].sill === 0, JSON.stringify(cr && cr.params));
+received.length = 0;
+await S.tool('create_room', { name: 'Wohnzimmer', points: [[0, 0], [3000, 0], [3000, 3000]], labels: { wall: 'Wand' } });
+cr = received.find((q) => q.cmd === 'create_room');
+check('create_room: other languages -> en + custom labels passed', cr && cr.params.language === 'en' && cr.params.labels.wall === 'Wand', JSON.stringify(cr && cr.params));
+r = await S.tool('create_room', { name: 'x', points: [[0, 0], [1, 0]] });
+check('create_room: fewer than 3 points -> validation error', r.isError, r.txt);
+r = await S.tool('create_room', { name: 'x', points: [[0, 0], [1000, 0], [0, 1000]], openings: [{ edge: 0, width: 900, height: 2100 }] });
+check('create_room: edge numbers start at 1', r.isError, r.txt);
+
+// 20: check_model messages
+behaviours.set('check_model', [{ reply: {
+  summary: { length_unit: 'inch', saved: false, max_nesting: 8, file_mb: null },
+  raw_top_faces: 12,
+  untagged_geometry: { count: 1, in: [{ id: 5, name: 'Table', faces: 6 }] },
+  raw_tagged: { count: 3, in: [{ id: 7, name: 'Wall', count: 3 }] },
+  inside_out: { count: 1, items: [{ id: 8, name: 'Box', definition: 'Box' }] },
+  duplicates: { count: 1, items: [{ id: 9, same_as: 4, name: 'Chair', in: '(top level)' }] },
+  stray_edges: { count: 4, in: [{ id: null, name: '(top level)', edges: 4 }] }, tiny_edges: 2,
+  unused: { definitions: ['Old'], definitions_n: 1, materials: [], materials_n: 0, tags: ['Temp'], tags_n: 1 },
+  heavy_textures: [{ name: 'Marble', px: [8000, 8000] }], heavy_definitions: [],
+  hidden: { objects: 2, tags: ['CL-01 Ceiling'] },
+  tags_in_use: ['FL-01 Oak', 'Walls', 'ZZ-01 Odd'], purged: null,
+} }]);
+r = await S.tool('check_model', {});
+const hm = JSON.parse(r.txt);
+const hid = (id) => hm.issues.find((i) => i.id === id);
+check('check_model: warnings first, with messages naming ids', !r.isError && hm.issues[0].severity === 'warning' && hid('duplicates')
+  && hid('duplicates').message.includes('copy of id 4') && hid('inside_out').message.includes('Box (id 8)'), r.txt);
+check('check_model: tag naming and unknown codes from the tag standard', hid('tag_names') && hid('tag_names').message.includes('Walls')
+  && hid('unknown_codes') && hid('unknown_codes').message.includes('ZZ-01 Odd') && !hid('tag_names').message.includes('FL-01'), r.txt);
+check('check_model: units, nesting, never saved, unused, textures reported as info', ['units', 'nesting', 'not_saved', 'unused', 'heavy_textures', 'hidden']
+  .every((k) => hid(k) && hid(k).severity === 'info') && hm.counts.warning === 5, JSON.stringify(hm.counts));
+check('check_model: is read only (no purge parameter is sent)', received.some((q) => q.cmd === 'check_model' && !('purge' in q.params)
+  && !('purge_only' in q.params)), JSON.stringify(received.map((q) => q.params)));
+received.length = 0;
+behaviours.set('check_model', [{ reply: { purged: { definitions: 1, materials: 0, tags: 1 } } }]);
+r = await S.tool('purge_unused', {});
+check('purge_unused: sends purge_only to the bridge and reports what was removed', received.some((q) => q.cmd === 'check_model'
+  && q.params.purge_only === true) && JSON.parse(r.txt).purged.tags === 1, r.txt);
+behaviours.set('check_model', [{ hang: true }]);
+r = await S.tool('purge_unused', {});
+check('purge_unused timeout -> "MAY HAVE ALREADY RUN" (not the read-only hint)', r.isError && r.txt.includes('MAY HAVE ALREADY RUN')
+  && !r.txt.includes('does not modify the model'), r.txt);
+const listed = await S.rpc('tools/list', {});
+const ann = (n) => (listed.result.tools.find((t) => t.name === n) || {}).annotations || {};
+check('annotations: check_model read only; purge_unused and create_scenes destructive', ann('check_model').readOnlyHint === true
+  && ann('purge_unused').destructiveHint === true && ann('create_scenes').destructiveHint === true, JSON.stringify([ann('check_model'), ann('create_scenes')]));
+
+// 20b: strict schemas, by_edge keys, language
+r = await S.tool('create_room', { name: 'x', points: [[0, 0], [3000, 0], [3000, 3000]], openings: [{ edge: 1, width: 900, height: 1200, sill_mm: 900 }] });
+check('create_room: a misspelt key (sill_mm) is an error, not silently dropped', r.isError && /sill_mm/.test(r.txt), r.txt);
+r = await S.tool('create_room', { name: 'x', points: [[0, 0], [3000, 0], [3000, 3000]], walls: { tag: 'WL-01', by_edge: { north: { tag: 'WL-02' } } } });
+check('create_room: by_edge keys must be edge numbers', r.isError, r.txt);
+r = await S.tool('create_room', { name: 'x', points: [[0, 0], [3000, 0], [3000, 3000]], floor: { thickness_mm: 20 } });
+check('create_room: floor.thickness_mm (unknown key) -> error', r.isError, r.txt);
+received.length = 0;
+await S.tool('create_room', { name: 'Bucătărie', points: [[0, 0], [3000, 0], [3000, 3000]], floor: { tag: 'FL-01 Gresie' } });
+await S.tool('create_room', { name: 'Living', points: [[0, 0], [3000, 0], [3000, 3000]], floor: { tag: 'FL-01 Oak' }, language: 'vi' });
+const crs = received.filter((q) => q.cmd === 'create_room');
+check('create_room: Romanian "Bucătărie" is not taken for Vietnamese', crs[0] && crs[0].params.language === 'en'
+  && crs[0].params.tag_styles['FL-01 Gresie'].folder === 'FL Floor finishes', JSON.stringify(crs[0] && crs[0].params));
+check('create_room: explicit language=vi also names the tag folders in Vietnamese', crs[1] && crs[1].params.tag_styles['FL-01 Oak'].folder === 'FL Sàn',
+  JSON.stringify(crs[1] && crs[1].params.tag_styles));
+
+// 21: create_scenes forwarding
+received.length = 0;
+await S.tool('create_scenes', { kinds: ['plan', 'elevations'], labels: { plan: 'Grundriss', elevation: 'Ansicht' } });
+const cs = received.find((q) => q.cmd === 'create_scenes');
+check('create_scenes: kinds, cut height, standard codes and labels (elevation -> elev)', cs && JSON.stringify(cs.params.kinds) === '["plan","elevations"]'
+  && cs.params.cut_height === 1200 && cs.params.codes.ceiling_show.includes('CL') && cs.params.labels.elev === 'Ansicht'
+  && cs.params.labels.plan === 'Grundriss' && cs.params.replace === true, JSON.stringify(cs && cs.params));
+
+// 22: check_design messages and limits
+received.length = 0;
+behaviours.set('check_design', [{ reply: {
+  issues: [
+    { check: 'ceiling_height', severity: 'error', room: 'Bedroom', value_mm: 2350, limit_mm: 2400, objects: [] },
+    { check: 'clash', severity: 'warning', room: 'Living', value_mm: 120, limit_mm: 10,
+      objects: [{ id: 1, name: 'Sofa', tag: 'FN-01 Sofa' }, { id: 2, name: 'Living - wall 1', tag: 'WL-01 Paint' }] },
+  ], objects_checked: 12, rooms: ['Bedroom', 'Living', 'Kitchen'], hidden: [],
+  kitchen_items: [
+    { id: 21, name: 'Piano cottura 60', def: 'Hob IT', tag: 'EQ-01 Hob', code: 'EQ', room: 'Kitchen', x_mm: 0, y_mm: 0 },
+    { id: 22, name: 'Abwasch links', def: 'x', tag: 'SN-01 Sink', code: 'SN', room: 'Kitchen', x_mm: 3000, y_mm: 0 },
+    { id: 23, name: 'TỦ LẠNH Samsung', def: 'x', tag: 'EQ-02 Fridge', code: 'EQ', room: 'Kitchen', x_mm: 3000, y_mm: 6000 },
+    { id: 24, name: 'Placard', def: 'Wardrobe', tag: 'JN-01', code: 'JN', room: 'Kitchen', x_mm: 50, y_mm: 50 },
+  ],
+} }]);
+r = await S.tool('check_design', { limits: { min_passage_mm: 900 }, kitchen_words: { sink: ['Abwasch'] } });
+const dsg = JSON.parse(r.txt);
+const cd = received.find((q) => q.cmd === 'check_design');
+check('check_design: default limits merged with overrides; generic ceiling default 2400', cd && cd.params.limits.min_passage_mm === 900
+  && cd.params.limits.min_ceiling_height_mm === 2400 && dsg.limits.min_passage_mm === 900, JSON.stringify(cd && cd.params.limits));
+const tri = dsg.issues.find((i) => i.check === 'kitchen_triangle');
+check('check_design: kitchen triangle from whole words in any language ("Piano cottura" = hob, not sink "pia"; "TỦ LẠNH"; extra word "Abwasch")',
+  tri && tri.objects.map((o) => o.id).join() === '22,21,23' && tri.value_mm === 3000 + 6708 + 6000, JSON.stringify(tri));
+check('check_design: messages and counts', dsg.issues[1].message === 'Sofa (FN-01 Sofa, id 1) and Living - wall 1 (WL-01 Paint, id 2) overlap by 120 mm.'
+  && dsg.issues[0].message.includes('2350 mm') && tri && tri.message.includes('3600-7900') && dsg.counts.clash === 1, r.txt);
+r = await S.tool('check_design', { limits: { kitchen_triangle_mm: [7900, 3600] } });
+check('check_design: kitchen_triangle_mm min > max -> validation error', r.isError, r.txt);
+r = await S.tool('check_design', { limits: { min_ceiling_height: 2600 } });
+check('check_design: misspelt limit (no _mm) -> error, not ignored', r.isError, r.txt);
+
+// 22b: sliding words, kitchen sink preference, open sides, purge keep codes, section tag label
+received.length = 0;
+behaviours.set('check_design', [{ reply: {
+  issues: [], objects_checked: 5, rooms: ['Kitchen'], hidden: [],
+  kitchen_items: [
+    { id: 31, name: 'Sink cabinet 800', def: 'x', tag: 'JN-01 Base units', code: 'JN', room: 'Kitchen', x_mm: 0, y_mm: 0 },
+    { id: 32, name: 'Kitchen sink', def: 'x', tag: 'SN-01 Sink', code: 'SN', room: 'Kitchen', x_mm: 1000, y_mm: 0 },
+    { id: 33, name: 'Hob', def: 'x', tag: 'EQ-01 Hob', code: 'EQ', room: 'Kitchen', x_mm: 9000, y_mm: 0 },
+    { id: 34, name: 'Fridge', def: 'x', tag: 'EQ-02 Fridge', code: 'EQ', room: 'Kitchen', x_mm: 9000, y_mm: 9000 },
+    { id: 35, name: 'Sink', def: 'x', tag: 'SN-02', code: 'SN', room: '', x_mm: 0, y_mm: 0 },
+    { id: 36, name: 'Hob', def: 'x', tag: 'EQ-01', code: 'EQ', room: '', x_mm: 0, y_mm: 0 },
+    { id: 37, name: 'Fridge', def: 'x', tag: 'EQ-02', code: 'EQ', room: '', x_mm: 0, y_mm: 0 },
+  ],
+} }]);
+r = await S.tool('check_design', { sliding_words: ['Hebeschiebetür'] });
+const dsg2 = JSON.parse(r.txt);
+const cd2 = received.find((q) => q.cmd === 'check_design');
+check('check_design: sliding words (built-in + extra, lower case) are sent to the bridge', cd2 && cd2.params.sliding_words.includes('lùa')
+  && cd2.params.sliding_words.includes('hebeschiebetür'), JSON.stringify(cd2 && cd2.params.sliding_words));
+const tri2 = dsg2.issues.filter((i) => i.check === 'kitchen_triangle');
+check('check_design: the SN-tagged sink is preferred over a cabinet named "sink"; items with no room are skipped',
+  tri2.length === 1 && tri2[0].objects[0].id === 32, JSON.stringify(tri2));
+received.length = 0;
+await S.tool('create_room', { name: 'Hall', points: [[0, 0], [3000, 0], [3000, 3000], [0, 3000]], walls: { tag: 'WL-01 Paint', by_edge: { 4: { none: true } } } });
+cr = received.find((q) => q.cmd === 'create_room');
+check('create_room: by_edge {"4": {"none": true}} is forwarded (open side)', cr && cr.params.walls.by_edge['4'].none === true, JSON.stringify(cr && cr.params.walls));
+received.length = 0;
+behaviours.set('check_model', [{ reply: { purged: { definitions: 0, materials: 0, tags: 0 } } }, { reply: { purged: { definitions: 0, materials: 0, tags: 0 } } }]);
+await S.tool('purge_unused', {});
+await S.tool('purge_unused', { keep_standard_tags: false });
+const pu = received.filter((q) => q.cmd === 'check_model');
+check('purge_unused: keeps the standard codes by default, none with keep_standard_tags=false', pu.length === 2
+  && ['FL', 'WL', 'CL', 'RF'].every((c) => pu[0].params.keep_codes.includes(c)) && pu[1].params.keep_codes.length === 0, JSON.stringify(pu.map((q) => q.params)));
+received.length = 0;
+await S.tool('create_scenes', { labels: { section_tag: 'Schnitte' } });
+const cs2 = received.find((q) => q.cmd === 'create_scenes');
+check('create_scenes: labels.section_tag -> sections', cs2 && cs2.params.labels.sections === 'Schnitte' && !('elev' in cs2.params.labels), JSON.stringify(cs2 && cs2.params));
+r = await S.tool('create_scenes', { labels: { sections: 'Schnitte' } });
+check('create_scenes: unknown label key -> error', r.isError, r.txt);
+
+// 22c: kitchen matching (compounds, digits, tags, hoods), not-checked notes, Vietnamese word list, check_model kept tags
+const kitchenRoom = (room, list) => list.map(([id, name, tag, code, x, y]) => ({ id, name, def: '', tag, code, room, x_mm: x, y_mm: y }));
+behaviours.set('check_design', [{ reply: {
+  issues: [], objects_checked: 9, rooms: ['Küche', 'Kitchen', 'Bath', 'Galley'], hidden: [], not_checked: ['Ceiling height not checked in Bath: no FL object.'],
+  kitchen_items: [
+    ...kitchenRoom('Küche', [[41, 'Edelstahlspüle', 'SN-01', 'SN', 0, 0], [42, 'Induktionskochfeld', 'EQ-01', 'EQ', 9000, 0], [43, 'Einbaukühlschrank', 'EQ-02', 'EQ', 9000, 9000]]),
+    ...kitchenRoom('Kitchen', [[51, 'Franke 123', 'SN-01 Kitchen sink', 'SN', 0, 0], [52, 'Range hood', 'EQ-03 Hood', 'EQ', 100, 100],
+      [53, 'Hob2', 'EQ-01', 'EQ', 9000, 0], [54, 'Fridge1', 'EQ-02', 'EQ', 9000, 9000]]),
+    ...kitchenRoom('Bath', [[61, 'Sink', 'SN-05 Basin', 'SN', 0, 0]]),
+    ...kitchenRoom('Galley', [[71, 'Sink', 'SN-01', 'SN', 0, 0], [72, 'Stove', 'EQ-01', 'EQ', 900, 0]]),
+  ],
+} }]);
+r = await S.tool('check_design', {});
+const dsg3 = JSON.parse(r.txt);
+const triOf = (room) => dsg3.issues.find((i) => i.check === 'kitchen_triangle' && i.room === room);
+check('kitchen: German compounds (Edelstahlspüle, Induktionskochfeld, Einbaukühlschrank)', triOf('Küche')
+  && triOf('Küche').objects.map((o) => o.id).join() === '41,42,43', JSON.stringify(dsg3.issues));
+check('kitchen: sink found by its tag, "Range hood" is not the hob, digits split words (Hob2, Fridge1)', triOf('Kitchen')
+  && triOf('Kitchen').objects.map((o) => o.id).join() === '51,53,54', JSON.stringify(triOf('Kitchen')));
+check('kitchen: a hob without a fridge -> not_checked note; a bathroom sink alone -> nothing; bridge notes kept',
+  dsg3.not_checked && dsg3.not_checked.some((n) => n.includes('Galley') && n.includes('no fridge')) && !dsg3.not_checked.some((n) => n.startsWith('Kitchen work triangle not checked in Bath'))
+  && dsg3.not_checked.includes('Ceiling height not checked in Bath: no FL object.') && /not_checked/.test(dsg3.notes[0]), JSON.stringify(dsg3.not_checked));
+received.length = 0;
+await S.tool('create_room', { name: 'Phòng khách', points: [[0, 0], [3000, 0], [3000, 3000]], floor: { tag: 'FL-01 Oak' } });
+cr = received.find((q) => q.cmd === 'create_room');
+check('create_room: "Phòng khách" alone (no Vietnamese-only letters) -> vi by the word list', cr && cr.params.language === 'vi', JSON.stringify(cr && cr.params));
+received.length = 0;
+await S.tool('setup_tags', { tags: ['LT-01 Đèn downlight', 'FL-03 Sàn đá'] });
+ct = received.find((q) => q.cmd === 'create_tags');
+check('setup_tags: "Đèn", "đá" -> Vietnamese folders', ct && ct.params.tags[0].folder === 'LT Đèn' && ct.params.tags[1].folder === 'FL Sàn',
+  JSON.stringify(ct && ct.params.tags));
+received.length = 0;
+behaviours.set('check_model', [{ reply: { unused: { definitions: [], definitions_n: 0, materials: [], materials_n: 0, tags: ['FL-01 Oak', 'Temp'], tags_n: 2, tags_standard_n: 1 } } }]);
+r = await S.tool('check_model', {});
+const um = JSON.parse(r.txt).issues.find((i) => i.id === 'unused');
+check('check_model: standard codes sent; empty standard tags that purge keeps are counted apart', received.some((q) => q.cmd === 'check_model'
+  && q.params.keep_codes && q.params.keep_codes.includes('FL')) && um && um.message.includes('1 of them empty standard tags'), JSON.stringify(um));
+
 // 9: bridge install tool on a temporary APPDATA
 const inst = async (args) => JSON.parse((await S.tool('install_sketchup_bridge', args)).txt);
 let j = await inst({ dry_run: true });

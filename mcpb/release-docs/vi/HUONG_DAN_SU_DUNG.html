@@ -122,13 +122,13 @@
 <span class="say">Ping SketchUp</span>
 <span class="say">Mô hình này có gì? Thống kê tag, vật liệu và component.</span>
 <span class="say">Chụp ảnh góc iso cho tôi xem.</span>
-<p><code>ping</code> cho biết Claude đang điều khiển <strong>mô hình nào</strong> và phiên bản plugin; nếu có dòng <code>warning</code> là plugin cũ — xem mục 7.</p>
+<p><code>ping</code> cho biết Claude đang điều khiển <strong>mô hình nào</strong> và phiên bản plugin; nếu có dòng <code>warning</code> là plugin cũ — xem mục 8.</p>
 
 <h2><span class="num">4</span>Dùng an toàn</h2>
 <ul>
   <li><strong>Lưu bản sao</strong> trước mỗi buổi làm việc với Claude.</li>
   <li>Mỗi lần Claude sửa mô hình là <strong>một bước Undo</strong> (<kbd>Ctrl</kbd>+<kbd>Z</kbd>), tên bắt đầu bằng <em>“MCP: …”</em> trong menu Edit.</li>
-  <li>Giữ chế độ <strong>hỏi xin phép</strong>. Không chọn <em>“Always allow”</em> cho: <code>run_ruby</code>, <code>delete_entities</code>, <code>undo</code>, <code>save_model</code>, <code>open_model</code>, <code>new_model</code>, <code>export_file</code>, <code>export_png</code>, <code>interior_takeoff</code> (các lệnh xuất, và lệnh bóc khối lượng khi lưu file CSV, có thể ghi đè file).</li>
+  <li>Giữ chế độ <strong>hỏi xin phép</strong>. Không chọn <em>“Always allow”</em> cho: <code>run_ruby</code>, <code>delete_entities</code>, <code>undo</code>, <code>save_model</code>, <code>open_model</code>, <code>new_model</code>, <code>export_file</code>, <code>export_png</code>, <code>interior_takeoff</code>, <code>purge_unused</code>, <code>create_scenes</code> (các lệnh xuất, và lệnh bóc khối lượng khi lưu file CSV, có thể ghi đè file).</li>
   <li><code>run_ruby</code> chạy code Ruby bất kỳ trong SketchUp. Nếu không đọc hiểu được đoạn code Claude đề xuất, hãy từ chối và yêu cầu Claude dùng các công cụ có sẵn.</li>
   <li>Claude chỉ điều khiển <strong>cửa sổ SketchUp mở đầu tiên</strong> (giữ cổng 9876). Mở thêm cửa sổ thứ hai thì cửa sổ đó không kết nối.</li>
   <li>Bóc khối lượng mô hình lớn hoặc lệnh <code>run_ruby</code> nặng có thể làm SketchUp đứng vài giây đến vài phút — hãy chờ. Nếu đứng quá lâu sau một lệnh <code>run_ruby</code> (có thể do vòng lặp vô hạn), đóng SketchUp bằng Task Manager; thay đổi chưa lưu sẽ mất.</li>
@@ -166,18 +166,39 @@
 <p>Gom vật thể của mỗi phòng vào một group đặt tên phòng và <strong>không gắn tag</strong> (Claude làm bằng <code>make_group</code>), ví dụ <code>Phòng khách</code>; group nằm trong group khác cho ra <code>Tầng 2 / Phòng ngủ 1</code>. Khi yêu cầu bóc khối lượng <em>theo phòng</em>, mỗi dòng được chia theo từng phòng, và file CSV có một cột cho mỗi phòng cạnh cột tổng. Vật thể nằm ngoài group phòng thì lấy tên phòng từ tên của nó, dạng <code>MÃ-số phòng - vị trí</code> (ví dụ <code>FL-01 Bếp - sàn</code>); nếu không có thì xếp vào mục <em>(chưa có phòng)</em>.</p>
 <span class="say">Gom các vật thể phòng khách thành phòng tên "Phòng khách", rồi bóc khối lượng theo phòng.</span>
 
-<h2><span class="num">6</span>Ví dụ câu lệnh</h2>
+<h2><span class="num">6</span>Dựng phòng, kiểm tra và scene hồ sơ</h2>
+<h3>Dựng phòng hoàn thiện một lần</h3>
+<p>Cho Claude đường bao phòng (mặt trong của tường thô), chiều cao và vật liệu hoàn thiện. <code>create_room</code> dựng lớp sàn, mỗi đoạn tường một tấm hoàn thiện có khoét cửa đi và cửa sổ, tấm trần, len chân tường (ngắt ở cửa), cánh cửa và kính, tất cả đều có tag và đặt tên <code>MÃ-số phòng - vị trí</code>, gom trong group phòng: sẵn sàng cho bảng khối lượng theo phòng. Các cạnh đánh số từ 1 theo thứ tự các điểm (cạnh 1 đi từ điểm 1 đến điểm 2). Một bức tường điểm nhấn có thể dùng vật liệu khác, và một cạnh mở có thể bỏ trống không dựng tường. Phòng có tường xiên hoặc hình chữ L cũng dựng được.</p>
+<span class="say">Dựng phòng khách từ các điểm (0,0), (5000,0), (5000,4000), (0,4000), cao 2800 mm: sàn FL-01, tường WL-01 với tường điểm nhấn ốp gỗ óc chó WL-02 ở cạnh 3, trần CL-01, len SK-01, cửa đi DR-01 900x2100 ở cạnh 1 cách đầu cạnh 500 mm và cửa sổ WN-01 1500x1200 ở cạnh 3 cách đầu cạnh 1000 mm, bậu cao 900 mm.</span>
+<h3>Kiểm tra sức khỏe mô hình</h3>
+<p><code>check_model</code> liệt kê những gì làm mô hình khó bóc khối lượng hoặc chạy chậm, không sửa gì: phần hình nằm ngoài group hoặc chưa có tag, mặt thô bị gắn tag, khối bị lộn mặt, bản sao chồng lên nhau (làm khối lượng gấp đôi), cạnh thừa và cạnh quá ngắn, component/vật liệu/tag không dùng, texture và component nặng, vật thể bị ẩn, tag không theo mã chuẩn. <code>purge_unused</code> xóa các component, vật liệu và tag không dùng, nhưng giữ lại các tag chuẩn còn trống đã tạo bằng <code>setup_tags</code>.</p>
+<span class="say">Kiểm tra lỗi mô hình này trước khi bóc khối lượng.</span>
+<h3>Kiểm tra thiết kế</h3>
+<p><code>check_design</code> kiểm tra chiều cao thông thủy từng phòng (và dưới chỗ hạ trần), kích thước tổng của cửa, đồ đạc lấn vào tường, lối đi hẹp, đồ chắn vùng mở cửa (bỏ qua cửa lùa) và tam giác bếp. Công cụ này không sửa gì. Các ngưỡng là giá trị tham khảo chung, <strong>không phải kiểm tra theo quy chuẩn</strong>: hãy cho Claude biết quy định của dự án.</p>
+<span class="say">Kiểm tra thiết kế với chiều cao trần tối thiểu 2600 mm và cửa rộng ít nhất 800 mm.</span>
+<h3>Scene hồ sơ</h3>
+<p><code>create_scenes</code> tạo từ các phòng và tag: mặt bằng bố trí (cắt ở cao độ 1200 mm trên mặt sàn hoàn thiện, ẩn trần), mặt bằng trần (nhìn từ trên xuống ở chế độ X-ray nên cùng hướng với mặt bằng, có tường và cửa làm mốc), mặt bằng lát sàn, 4 mặt đứng cho mỗi phòng (A nhìn về +Y là trục xanh lá; B +X là trục đỏ; C −Y; D −X) và một phối cảnh tầm mắt cho mỗi phòng. Khi các phòng được gom theo tầng (group chứa các phòng), mặt bằng được tạo theo từng tầng. Chạy lại thì thay các scene nó đã tạo cho cùng loại và cùng phòng; scene riêng của bạn không bao giờ bị động đến.</p>
+<ul>
+  <li>Các mặt cắt nằm trên một tag ẩn riêng (<em>Mặt cắt</em>): vẫn cắt bình thường nhưng không làm rối các góc nhìn.</li>
+  <li>Mặt bằng trần có style riêng (thiết lập hiển thị hiện tại của bạn, bật X-ray), vì scene hiển thị theo thiết lập đã lưu trong style của nó.</li>
+  <li>Góc nhìn, style và trạng thái ẩn/hiện tag của bạn được giữ nguyên. Tên scene theo ngôn ngữ của tên phòng, hoặc theo tên bạn đặt.</li>
+</ul>
+<span class="say">Tạo các scene hồ sơ cho tất cả các phòng.</span>
+
+<h2><span class="num">7</span>Ví dụ câu lệnh</h2>
 <div class="grid2">
   <div class="card"><h4>Đọc &amp; thống kê</h4>“Liệt kê các component và số lượng, sắp xếp giảm dần.”<br>“Đếm số cửa D1 và cửa sổ trong mô hình.”</div>
   <div class="card"><h4>Bóc khối lượng</h4>“Bóc khối lượng nội thất theo tag.” <span class="muted">(sàn và trần tính m², tường m² một mặt, len tính mét dài, đồ rời đếm cái — xem mục 5)</span><br>“Chỉ tính phần đang chọn, và lưu ra D:/BOQ/phong.csv.”</div>
   <div class="card"><h4>Dựng hình</h4>“Tạo sàn dày 120 mm từ các điểm (0,0), (6000,0), (6000,4000), (0,4000).”<br>“Dời các đối tượng đang chọn lên 300 mm.”</div>
   <div class="card"><h4>Vật liệu &amp; tag</h4>“Gán tag Tường cho các đối tượng đang chọn.”<br>“Đổi vật liệu đang chọn sang Gạch 600x600 màu #D9D3C9.”</div>
   <div class="card"><h4>Xuất &amp; góc nhìn</h4>“Chụp ảnh góc trên cho tôi kiểm tra.” <span class="muted">(góc nhìn của bạn được giữ nguyên)</span><br>“Xuất ảnh PNG 1920x1080 góc iso ra Desktop, tên phoi_canh.png.”</div>
+  <div class="card"><h4>Dựng phòng</h4>“Dựng phòng ngủ từ các điểm này, cao 2700 mm, sàn gỗ sồi FL-01, sơn trắng WL-01, trần CL-01, len SK-01 và cửa đi 800x2100 ở cạnh 2; để trống cạnh 4.”</div>
+  <div class="card"><h4>Kiểm tra &amp; scene</h4>“Kiểm tra lỗi mô hình này.”<br>“Kiểm tra thiết kế.”<br>“Tạo các scene hồ sơ cho phòng bếp.”</div>
   <div class="card"><h4>Mẹo</h4>Nói rõ đơn vị (mm). Sau mỗi bước, nhờ Claude “chụp ảnh kiểm tra”. Sai thì bảo “undo bước vừa rồi”.</div>
 </div>
 <p class="muted">Xem thêm danh sách đầy đủ trong <span class="path">CAU_LENH_MAU.txt</span>.</p>
 
-<h2><span class="num">7</span>Xử lý lỗi thường gặp</h2>
+<h2><span class="num">8</span>Xử lý lỗi thường gặp</h2>
 <div class="tablewrap"><table>
   <tr><th>Thông báo (nguyên văn)</th><th>Nguyên nhân</th><th>Cách xử lý</th></tr>
   <tr><td><code>Cannot connect to SketchUp at 127.0.0.1:9876</code></td><td>SketchUp chưa mở, plugin chưa cài hoặc đang tắt.</td><td>Mở SketchUp; xem <span class="menu">Extensions → SU MCP Bridge → Status</span>; chưa có menu thì làm lại bước 2.</td></tr>
@@ -191,13 +212,13 @@
   <tr><td>Mỗi công cụ SketchUp xuất hiện 2 lần</td><td>Máy đã có cấu hình cũ <code>"sketchup"</code> (bản Python) trong <span class="path">claude_desktop_config.json</span>.</td><td>Xóa mục đó (Settings → Developer → Edit Config) rồi khởi động lại Claude.</td></tr>
 </table></div>
 
-<h2><span class="num">8</span>Cập nhật &amp; gỡ cài đặt</h2>
+<h2><span class="num">9</span>Cập nhật &amp; gỡ cài đặt</h2>
 <ul>
   <li><strong>Cập nhật:</strong> cài file .mcpb mới đè lên (thiết lập được giữ), rồi gõ “Cài SU MCP Bridge vào SketchUp” và khởi động lại SketchUp. Luôn cập nhật <em>cả hai</em> phần, sau đó gõ “Ping SketchUp” — không có dòng <code>warning</code> là xong.</li>
   <li><strong>Gỡ:</strong> Claude → <span class="menu">Settings → Extensions → SketchUp MCP → Uninstall</span>. Trong SketchUp: Extension Manager → SU MCP Bridge → Uninstall (hoặc xóa <span class="path">su_mcp.rb</span> và thư mục <span class="path">su_mcp</span> trong <span class="path">%APPDATA%\SketchUp\SketchUp 20xx\SketchUp\Plugins</span>).</li>
 </ul>
 
-<h2><span class="num">9</span>Báo lỗi / góp ý</h2>
+<h2><span class="num">10</span>Báo lỗi / góp ý</h2>
 <p>Mở một issue trên repository GitHub của dự án (hoặc báo cho người hỗ trợ trong tổ chức của bạn), kèm:</p>
 <ol>
   <li>Kết quả lệnh “Ping SketchUp” (phiên bản SketchUp, plugin, extension).</li>

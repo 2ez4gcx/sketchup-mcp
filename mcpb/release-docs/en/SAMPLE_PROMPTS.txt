@@ -42,6 +42,24 @@ SN sanitary, EQ equipment, CU curtain, DE decor, EX existing structure, RF refer
 - Make the bill of quantities by room and save it to D:/BOQ/takeoff.csv.   (one CSV column per room)
 - Include the hidden objects too.   (objects on hidden tags are only listed in the warnings by default)
 
+ROOMS, CHECKS & DOCUMENTATION SCENES
+- Create the living room from the points (0,0), (5000,0), (5000,4000), (0,4000), 2800 mm high: floor FL-01,
+  walls WL-01 with a walnut feature wall WL-02 on edge 3, ceiling CL-01, skirting SK-01,
+  a 900 x 2100 door DR-01 on edge 1 at 500 mm, a 1500 x 1200 window WN-01 on edge 3 at 1000 mm, sill 900 mm.
+  (the outline is the bare inner face of the walls; edge 1 runs from point 1 to point 2; every part is tagged
+   and named, inside a room group, ready for the bill of quantities by room)
+- Create the hall from the points (5000,0), (8000,0), (8000,4000), (5000,4000), 2800 mm high, floor FL-01, walls WL-01,
+  and leave edge 4 open (no wall finish, no skirting: it opens to the living room).
+- Check this model for problems before the takeoff.        (check_model changes nothing)
+- Remove the unused components, materials and tags.        (purge_unused keeps the empty standard tags)
+- Run the design checks.   (ceiling heights, doors, furniture into walls, passages, door swing zones, kitchen triangle)
+- Run the design checks with a minimum ceiling height of 2600 mm and doors at least 800 mm wide.
+  (the default limits are common reference values, not a building code: give the rules of your project)
+- Make the documentation scenes for all rooms.
+  (furniture plan, reflected ceiling plan, floor finish plan, 4 elevations and a view per room; run it again to update:
+   it replaces the scenes it made for the same kinds and rooms, never your own scenes)
+- Make only the elevations of the Kitchen, with the scene names in German.
+
 QUANTITY TAKEOFF (raw totals)
 - Run a quantity takeoff by material, only for the selected objects.
   -> Note: face_area_m2 of quantity_takeoff is the total area of ALL faces (a solid includes its top, bottom and

@@ -42,6 +42,24 @@ LT đèn, SN thiết bị vệ sinh, EQ thiết bị, CU rèm, DE trang trí, EX
 - Bóc khối lượng theo phòng và lưu ra D:/BOQ/khoi-luong.csv.   (mỗi phòng một cột trong file CSV)
 - Tính cả các vật thể đang ẩn.   (mặc định vật thể trên tag ẩn chỉ được liệt kê trong phần cảnh báo)
 
+DỰNG PHÒNG, KIỂM TRA & SCENE HỒ SƠ
+- Dựng phòng khách từ các điểm (0,0), (5000,0), (5000,4000), (0,4000), cao 2800 mm: sàn FL-01,
+  tường WL-01 với tường điểm nhấn ốp gỗ óc chó WL-02 ở cạnh 3, trần CL-01, len SK-01,
+  cửa đi DR-01 900 x 2100 ở cạnh 1 cách đầu cạnh 500 mm, cửa sổ WN-01 1500 x 1200 ở cạnh 3 cách đầu cạnh 1000 mm, bậu 900 mm.
+  (đường bao là mặt trong của tường thô; cạnh 1 đi từ điểm 1 đến điểm 2; mọi phần đều có tag và tên,
+   gom trong group phòng, sẵn sàng bóc khối lượng theo phòng)
+- Dựng sảnh từ các điểm (5000,0), (8000,0), (8000,4000), (5000,4000), cao 2800 mm, sàn FL-01, tường WL-01,
+  và để trống cạnh 4 (không ốp tường, không len: thông sang phòng khách).
+- Kiểm tra lỗi mô hình này trước khi bóc khối lượng.        (check_model không sửa gì)
+- Xóa các component, vật liệu và tag không dùng.            (purge_unused giữ lại các tag chuẩn còn trống)
+- Kiểm tra thiết kế.   (chiều cao trần, cửa, đồ lấn tường, lối đi, vùng mở cửa, tam giác bếp)
+- Kiểm tra thiết kế với chiều cao trần tối thiểu 2600 mm và cửa rộng ít nhất 800 mm.
+  (ngưỡng mặc định là giá trị tham khảo chung, không phải quy chuẩn: hãy đưa quy định của dự án)
+- Tạo các scene hồ sơ cho tất cả các phòng.
+  (mặt bằng bố trí, mặt bằng trần, mặt bằng lát sàn, 4 mặt đứng và một phối cảnh mỗi phòng; chạy lại để cập nhật:
+   nó thay các scene nó đã tạo cho cùng loại và cùng phòng, không đụng đến scene riêng của bạn)
+- Chỉ tạo các mặt đứng của phòng Bếp, đặt tên scene bằng tiếng Anh.
+
 BÓC KHỐI LƯỢNG (tổng thô)
 - Bóc khối lượng theo vật liệu, chỉ tính phần đang chọn.
   -> Lưu ý: face_area_m2 của quantity_takeoff là tổng MỌI mặt (khối đặc gồm mặt trên, mặt dưới, mặt cạnh).

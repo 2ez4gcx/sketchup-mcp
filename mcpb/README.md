@@ -19,7 +19,7 @@ This README is for developers.
 
 | Path | What it is |
 |---|---|
-| `src/index.mjs` | The MCP server: 29 tools, TCP client for the bridge, `install_sketchup_bridge`. |
+| `src/index.mjs` | The MCP server: 34 tools, TCP client for the bridge, `install_sketchup_bridge`. |
 | `manifest.json` | MCPB manifest (manifest_version 0.3): tool list, `user_config` (port, timeout), compatibility. |
 | `scripts/build.mjs` | `npm run build`: bundle, `.rbz`, notices, validate, pack. |
 | `scripts/versions.mjs` | Checks that the version matches in all 4 places (used by the build and the unit tests). |
@@ -34,10 +34,10 @@ This README is for developers.
 
 | Group | Tools |
 |---|---|
-| Read / quantities | `ping`, `model_info`, `list_tags`, `list_components`, `list_materials`, `selection_info`, `quantity_takeoff`, `interior_takeoff` |
-| Modelling | `create_box`, `create_shape`, `create_lines`, `insert_component`, `transform_entities`, `set_material`, `set_tag`, `setup_tags`, `make_group`, `delete_entities`, `select_entities`, `undo` |
+| Read / quantities | `ping`, `model_info`, `list_tags`, `list_components`, `list_materials`, `selection_info`, `quantity_takeoff`, `interior_takeoff`, `check_model`, `check_design` |
+| Modelling | `create_box`, `create_shape`, `create_lines`, `insert_component`, `transform_entities`, `set_material`, `set_tag`, `setup_tags`, `make_group`, `create_room`, `purge_unused`, `delete_entities`, `select_entities`, `undo` |
 | Arbitrary Ruby | `run_ruby` |
-| View / files | `set_view`, `screenshot`, `export_png`, `export_file`, `save_model`, `open_model`, `new_model` |
+| View / files | `set_view`, `create_scenes`, `screenshot`, `export_png`, `export_file`, `save_model`, `open_model`, `new_model` |
 | Setup | `install_sketchup_bridge`: install or update the bridge in the Plugins folder of every SketchUp version opened at least once. `dry_run=true` only reports what it would do; `versions=["2026"]` picks versions. |
 
 Units: lengths in mm, areas in m², volumes in m³, angles in degrees; Z is up. Every model-editing tool is one Undo step.

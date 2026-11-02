@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.2ez4gcx/sketchup-mcp",
   "title": "SketchUp MCP",
-  "description": "Let AI work in SketchUp: pro tagging, interior quantity takeoff by tag and room, modeling, Ruby.",
-  "version": "1.3.0",
+  "description": "Let AI work in SketchUp: rooms, pro tagging, takeoff by room, model/design checks, scenes, Ruby.",
+  "version": "1.4.0",
   "websiteUrl": "https://github.com/2ez4gcx/sketchup-mcp",
   "repository": {
     "url": "https://github.com/2ez4gcx/sketchup-mcp",
@@ -12,7 +12,7 @@
   },
   "icons": [
     {
-      "src": "https://raw.githubusercontent.com/2ez4gcx/sketchup-mcp/v1.3.0/mcpb/icon.png",
+      "src": "https://raw.githubusercontent.com/2ez4gcx/sketchup-mcp/v1.4.0/mcpb/icon.png",
       "mimeType": "image/png",
       "sizes": [
         "512x512"
@@ -22,9 +22,9 @@
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/2ez4gcx/sketchup-mcp/releases/download/v1.3.0/sketchup-mcp-1.3.0.mcpb",
-      "version": "1.3.0",
-      "fileSha256": "eca889bb130800516d7b04c44c6c550ac5056f297e7ea2f1cf0edd2d053d5009",
+      "identifier": "https://github.com/2ez4gcx/sketchup-mcp/releases/download/v1.4.0/sketchup-mcp-1.4.0.mcpb",
+      "version": "1.4.0",
+      "fileSha256": "0ebf252da6d83ec000a16cb9637174989fef55352ad3d4205166f3128db0ea95",
       "transport": {
         "type": "stdio"
       },

@@ -34,7 +34,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 //  - commands without an Undo step (undo, save/open/export file): may already have run, check first, do NOT use undo.
 const READ_ONLY_CMDS = new Set(['ping', 'model_info', 'list_tags', 'list_components', 'list_materials',
   'selection_info', 'quantity_takeoff', 'measure_tags', 'check_model', 'check_design', 'screenshot', 'set_view', 'select_entities']);
-const NO_UNDO_CMDS = new Set(['undo', 'save_model', 'open_model', 'new_model', 'export_file', 'export_png']);
+const NO_UNDO_CMDS = new Set(['undo', 'save_model', 'open_model', 'new_model', 'export_file', 'export_png', 'export_for_render']);
 
 function afterSendHint(cmd) {
   if (READ_ONLY_CMDS.has(cmd)) {
@@ -424,9 +424,9 @@ const BOM = String.fromCharCode(0xfeff); // UTF-8 byte order mark: makes Excel r
 function normalizeMeasures(measures, tagNames = []) {
   const byTag = new Map();
   const byCode = new Map();
-  const names = new Set(tagNames.map((n) => String(n).trim()));
+  const names = new Set(tagNames.map((n) => String(n).normalize('NFC').trim()));
   for (const [k, v] of Object.entries(measures || {})) {
-    const key = String(k).trim();
+    const key = String(k).normalize('NFC').trim();
     if (!names.has(key) && /^[A-Za-z]{2,3}(?:[-_ ]?\d{1,3})?$/.test(key)) {
       const tc = tagCode(key);
       byCode.set(tc.codeNN || tc.code, { key: k, v });
@@ -440,7 +440,7 @@ function normalizeMeasures(measures, tagNames = []) {
 /** Unit picked for a tag: overrides by tag name, then "LT-05", then "LT"; else the category default. */
 function boqMeasure(tag, over) {
   const { code, codeNN } = tagCode(tag);
-  const hit = over.byTag.get(String(tag).trim()) || (codeNN && over.byCode.get(codeNN)) || (code && over.byCode.get(code));
+  const hit = over.byTag.get(String(tag).normalize('NFC').trim()) || (codeNN && over.byCode.get(codeNN)) || (code && over.byCode.get(code));
   if (hit) {
     over.used.add(hit.key);
     return hit.v;
@@ -750,12 +750,16 @@ const WallSpec = z.strictObject({
   }))).describe('Per edge, e.g. {"2": {"tag": "WL-02 Oak panel"}} for a feature wall, {"4": {"none": true}} for an open side'),
 });
 const OpeningSpec = z.strictObject({
-  edge: z.number().int().min(1).describe('Edge number (edge 1 = from point 1 to point 2)'),
+  edge: z.number().int().min(1).describe('Edge number, counted from 1: edge 1 runs from point 1 to point 2, the last edge from the last point back to point 1'),
   offset: z.number().min(0).default(0).describe('mm from the START of that edge to the opening'),
   width: z.number().positive().describe('mm'),
   height: z.number().positive().describe('Opening height in mm, from the sill up to the head (not the head height above the floor)'),
-  sill: z.number().min(0).default(0).describe('mm above the finished floor; a DR tag makes it a door, a WN tag a window, else sill < 50 mm = door'),
-  tag: opt(Str).describe('e.g. "DR-01 Oak door 900x2100" or "WN-01 ...": adds a door leaf / glass pane counted as an item; empty = opening only'),
+  sill: z.number().min(0).default(0).describe('mm above the finished floor'),
+  type: opt(z.enum(['door', 'window', 'glass', 'opening'])).describe('What fills it: door (40 mm leaf), window or glass (10 mm pane, e.g. ' +
+    'a full-height glass wall), opening (a hole only). Default: from the tag code (DR door, WN window, GL glass), else a door ' +
+    'when the sill is under 50 mm, else a window'),
+  tag: opt(Str).describe('e.g. "DR-01 Oak door 900x2100", "WN-01 ...", "GL-01 Glass wall": the leaf/pane gets it and counts as an item; ' +
+    'empty = a hole only'),
   material: opt(Str), color: opt(Str), name: opt(Str),
 });
 
@@ -777,12 +781,15 @@ function roomTagStyles(a, language) {
 server.registerTool('create_room', {
   description:
     'Build a finished interior room in one Undo step, ready for interior_takeoff. The outline is the bare inner face of the ' +
-    'walls, [x,y] in mm, either winding (z is ignored: use level). Edge k runs from point k to point k+1; the last edge closes ' +
-    'the outline. Creates an untagged group named after the room holding: the floor finish (top = level), one wall-finish ' +
-    'panel per edge built inward from the outline with the openings cut through, the ceiling board (underside = level + ' +
-    'height), skirting inside the wall finish (interrupted at doors), and a door leaf / glass pane for each opening with a tag ' +
-    '(tag a door shared by two rooms in one of them only). ' +
-    'Each part is a group with its tag, named "<code> <room> - <location>". Leave a part out to skip it. Returns {room, ' +
+    'walls, [x,y] in mm, either winding (z is ignored: use level). Edges are numbered from 1: edge 1 runs from point 1 to ' +
+    'point 2, edge k from point k to point k+1, the last edge from the last point back to point 1. Creates an untagged group ' +
+    'named after the room holding: the floor finish (top = level), one wall-finish ' +
+    'panel per edge built inward from the outline with the openings cut through (also full-height ones), the ceiling board ' +
+    '(underside = level + height), skirting inside the wall finish (interrupted at doors), and a door leaf / glass pane for ' +
+    'each opening with a tag (tag a door shared by two rooms in one of them only). ' +
+    'Each part is a group with its tag, named "<code> <room> - <location>"; wall, skirting, door and window groups have their ' +
+    'own axes (origin at the start of their edge, x along it, y into the room), so geometry added inside one later must be ' +
+    'given in those axes (transform model points by the inverse of the group transformations). Leave a part out to skip it. Returns {room, ' +
     'parts:[{id, kind, name, tag}], quantities:{floor_area_m2, perimeter_m, wall_area_gross_m2, wall_area_net_m2, ' +
     'ceiling_area_m2, skirting_m}}.',
   inputSchema: {
@@ -797,7 +804,7 @@ server.registerTool('create_room', {
     openings: opt(jsonish(z.array(OpeningSpec))).describe('Doors and windows cut through the wall finish'),
     language: opt(z.enum(['en', 'vi'])).describe('Built-in part names; default: Vietnamese when the names look Vietnamese, else English'),
     labels: opt(jsonish(z.strictObject({
-      floor: opt(Str), wall: opt(Str), ceiling: opt(Str), skirting: opt(Str), door: opt(Str), window: opt(Str),
+      floor: opt(Str), wall: opt(Str), ceiling: opt(Str), skirting: opt(Str), door: opt(Str), window: opt(Str), glass: opt(Str),
     }))).describe('Part names in any language, e.g. {"wall": "Wand", "floor": "Boden"}'),
   },
   annotations: EDIT,
@@ -1112,6 +1119,204 @@ server.registerTool('check_design', {
   });
 });
 
+// ---------------------------------------------------------------- detailed furniture
+const FURNITURE_TYPES = ['sofa_track_arm', 'swivel_lounge_chair', 'round_glass_coffee_table', 'potted_tree_ficus', 'pillow'];
+const FURNITURE_ROLES = ['fabric', 'metal', 'glass', 'pot', 'soil', 'bark', 'leaf', 'pillow', 'pillow2', 'paper', 'paper2'];
+
+server.registerTool('insert_furniture', {
+  description:
+    'Insert a detailed piece of furniture or a plant built from smooth meshes (rounded upholstery, puffy cushions, turned and ' +
+    'lofted shapes), as one group: one item for interior_takeoff. Types and default sizes (mm): sofa_track_arm (track-arm ' +
+    'sofa with seat and back cushions and two scatter pillows; width 2200, depth 950, height 820 = the back, the pillows stand ' +
+    'about 85 above it; seats 1-5), ' +
+    'swivel_lounge_chair (round swivel chair with a shell back; width 780, height 830), round_glass_coffee_table (glass top on ' +
+    'a column and cross base; diameter 900, height 430; decor=true adds three magazines), potted_tree_ficus (ficus in a tall ' +
+    'pot, about 360 leaf instances of one leaf component; height 2050; seed varies the leaves), pillow (width 440, height ' +
+    '420, thickness 150). position = the point on the floor under its centre; the front faces -Y before rotation_deg ' +
+    '(counter-clockwise about Z). Materials by role (fabric, metal, glass, pot, soil, bark, leaf, pillow, pillow2, paper, ' +
+    'paper2): a name given is used as it is when it exists, else created; roles not given get a default material. Give it ' +
+    'its tag, e.g. "FN-01 Sofa" or "DE-01 Ficus".' + RETURNS,
+  inputSchema: {
+    type: z.enum(FURNITURE_TYPES),
+    position: opt(Point).describe('[x,y,z] mm, the floor point under its centre; default the origin'),
+    rotation_deg: z.number().default(0),
+    size: opt(jsonish(z.strictObject({
+      width: opt(z.number().positive()), depth: opt(z.number().positive()), height: opt(z.number().positive()),
+      diameter: opt(z.number().positive()), thickness: opt(z.number().positive()), seats: opt(z.number().int().min(1).max(5)),
+    }))).describe('Only the sizes of its type are used (see above)'),
+    materials: opt(jsonish(z.strictObject(Object.fromEntries(FURNITURE_ROLES.map((k) => [k, opt(Str)])))))
+      .describe('Material names by role, e.g. {"fabric": "FN-01 Fabric warm grey", "metal": "Brushed steel"}'),
+    tag: opt(Str).describe(TAG_DESC),
+    name: opt(Str),
+    decor: z.boolean().default(false).describe('round_glass_coffee_table: three magazines on the top'),
+    seed: z.number().int().default(11).describe('potted_tree_ficus: another seed gives other leaves'),
+    language: opt(z.enum(['en', 'vi'])).describe('Part and default material names; default: Vietnamese when the names look Vietnamese'),
+  },
+  annotations: EDIT,
+}, async (a) => {
+  const language = a.language || (looksVietnamese([a.name, a.tag, ...Object.values(a.materials || {})]) ? 'vi' : 'en');
+  const style = a.tag ? tagStyle(a.tag, language) : undefined;
+  return text(await call('insert_furniture', { ...a, language, ...(style ? { tag_style: style } : {}) }));
+});
+
+// ---------------------------------------------------------------- export for rendering
+/** Python script that builds a Blender scene from an export_for_render folder (paths written in as string literals). */
+function blenderScript(o) {
+  const lit = (v) => JSON.stringify(v);
+  return `"""Build a Blender scene from a SketchUp MCP export: the OBJ (metres, Y up) and the cameras and lights JSON files.
+Run it in the background:  blender -b -P ${lit(o.script).slice(1, -1)}
+It starts from an empty scene and saves a new .blend next to the OBJ (never over an existing one).
+Blender 3.2 or later. Light power, materials and render settings are starting values: adjust them to the project."""
+import json
+import math
+import os
+
+import bpy
+from mathutils import Matrix, Vector
+
+OBJ = ${lit(o.obj)}
+CAMERAS = ${lit(o.cameras)}
+LIGHTS = ${lit(o.lights)}
+BLEND = ${lit(o.blend)}
+LIGHT_POWER_W = 20.0  # per light fitting (objects tagged LT)
+LIGHT_COLOR = (1.0, 0.93, 0.84)  # warm white
+
+bpy.ops.wm.read_factory_settings(use_empty=True)
+bpy.ops.wm.obj_import(filepath=OBJ)  # the default axes (forward -Z, up Y) read the Y-up OBJ back to Z up
+sc = bpy.context.scene
+
+# OBJ colours (Kd) are SketchUp sRGB values, Blender reads them as linear: convert them
+for m in bpy.data.materials:
+    if not m.use_nodes:
+        continue
+    bsdf = next((n for n in m.node_tree.nodes if n.type == "BSDF_PRINCIPLED"), None)
+    if bsdf is None:
+        continue
+    bc = bsdf.inputs["Base Color"]
+    if not bc.is_linked:
+        lin = [((v + 0.055) / 1.055) ** 2.4 if v > 0.04045 else v / 12.92 for v in bc.default_value[:3]]
+        bc.default_value = (lin[0], lin[1], lin[2], 1.0)
+    bsdf.inputs["Roughness"].default_value = 0.6
+
+
+def look_at(obj, eye, target, up):
+    f = (target - eye).normalized()
+    r = f.cross(up)
+    if r.length < 1e-6:
+        r = f.cross(Vector((0.0, 1.0, 0.0)))
+    r.normalize()
+    u = r.cross(f)
+    obj.matrix_world = Matrix(((r.x, u.x, -f.x, eye.x), (r.y, u.y, -f.y, eye.y), (r.z, u.z, -f.z, eye.z), (0.0, 0.0, 0.0, 1.0)))
+
+
+aspect = None
+with open(CAMERAS, encoding="utf-8") as fh:
+    cameras = json.load(fh)
+for c in cameras:
+    data = bpy.data.cameras.new(c["name"])
+    data.sensor_fit = "VERTICAL"
+    data.clip_start = 0.05
+    if c.get("perspective", True) and c.get("fov"):
+        data.angle_y = math.radians(c["fov"])
+    else:
+        data.type = "ORTHO"
+        data.ortho_scale = (c.get("height_mm") or 10000.0) / 1000.0
+    cam = bpy.data.objects.new(c["name"], data)
+    sc.collection.objects.link(cam)
+    look_at(cam, Vector(c["eye"]) / 1000.0, Vector(c["target"]) / 1000.0, Vector(c.get("up") or (0.0, 0.0, 1.0)))
+    if sc.camera is None:
+        sc.camera = cam
+        aspect = c.get("aspect")
+
+with open(LIGHTS, encoding="utf-8") as fh:
+    lights = json.load(fh)
+coll = bpy.data.collections.new("LT lights")
+sc.collection.children.link(coll)
+for i, lt in enumerate(lights):
+    d = bpy.data.lights.new("%s %d" % (lt["tag"], i + 1), "AREA")
+    d.shape = "RECTANGLE"
+    d.size = max(lt["plan_size"][0] / 1000.0, 0.05)
+    d.size_y = max(lt["plan_size"][1] / 1000.0, 0.05)
+    d.energy = LIGHT_POWER_W
+    d.color = LIGHT_COLOR
+    ob = bpy.data.objects.new(d.name, d)
+    ob.location = (lt["center"][0] / 1000.0, lt["center"][1] / 1000.0, lt["bottom"] / 1000.0 - 0.005)
+    ob.rotation_euler = (0.0, 0.0, math.radians(lt.get("yaw", 0.0)))  # an area light shines down (-Z)
+    if hasattr(ob, "visible_camera"):
+        ob.visible_camera = False
+    coll.objects.link(ob)
+
+world = bpy.data.worlds.new("World")
+world.use_nodes = True
+world.node_tree.nodes["Background"].inputs["Strength"].default_value = 0.3
+sc.world = world
+sc.render.engine = "CYCLES"
+sc.cycles.samples = 128
+sc.cycles.use_denoising = True
+for vt in ("AgX", "Filmic"):
+    try:
+        sc.view_settings.view_transform = vt
+        break
+    except TypeError:
+        continue
+sc.render.resolution_x = 1920
+sc.render.resolution_y = int(round(1920 / aspect)) if aspect else 1080
+out = BLEND
+k = 1
+while os.path.exists(out):  # keep a .blend made earlier (it may hold lighting or material work)
+    k += 1
+    out = "%s (%d).blend" % (BLEND[:-6], k)
+bpy.ops.wm.save_as_mainfile(filepath=out)
+print("SKETCHUP_MCP_BLENDER_OK", out, len(cameras), "cameras", len(lights), "lights")
+`;
+}
+
+server.registerTool('export_for_render', {
+  description:
+    'Export the model for rendering (Blender Cycles or another renderer) into a folder: <name>.obj with its .mtl and texture ' +
+    'files (metres, Y up, triangulated; faces get the material they inherit from their group or component, so textures and ' +
+    'UVs come through; the model itself is not changed), <name>_cameras.json (one camera per scene: eye, target, up in mm ' +
+    'in SketchUp axes, vertical field of view in degrees, aspect, hidden tags), <name>_lights.json (objects tagged LT: ' +
+    'centre, plan size, yaw, bottom and top in mm) and <name>_blender.py, which builds a Blender scene from them (cameras, ' +
+    'a soft area light under each LT fitting, Cycles) and saves <name>.blend (a new file if one exists). Tell the user how ' +
+    'to run it: blender -b -P <script>.',
+  inputSchema: {
+    folder: Str.refine((v) => (process.platform === 'win32' ? /^([A-Za-z]:[\\/]|[\\/]{2}[^\\/]+[\\/][^\\/]+[\\/])/.test(v.trim())
+      : path.isAbsolute(v)), 'give a full path with a drive letter or a network share, e.g. "D:/Render/Showroom"')
+      .describe('Output folder, a full path, e.g. "D:/Render/Showroom" (created if missing)'),
+    name: opt(Str).describe('File name without extension; default the model name'),
+    scenes: opt(jsonish(z.array(Str))).describe('Only these scenes as cameras; default every scene (the current view when there is none)'),
+    current_view: z.boolean().default(false).describe('Also a camera for the current view'),
+    blender_script: z.boolean().default(true).describe('Write <name>_blender.py'),
+    overwrite: z.boolean().default(false).describe('Replace an earlier export of the same name (ask the user first)'),
+  },
+  annotations: DESTRUCTIVE,
+}, async (a) => {
+  const r = (await call('export_for_render', {
+    folder: a.folder, name: a.name, scenes: a.scenes, current_view: a.current_view, overwrite: a.overwrite,
+  })) || {};
+  const dir = r.folder || a.folder;
+  const cams = path.join(dir, `${r.name}_cameras.json`);
+  const lights = path.join(dir, `${r.name}_lights.json`);
+  await fs.writeFile(cams, JSON.stringify(r.cameras || [], null, 2), 'utf8');
+  await fs.writeFile(lights, JSON.stringify(r.lights || [], null, 2), 'utf8');
+  const out = {
+    files: { obj: r.obj, mtl: r.mtl, cameras: cams, lights },
+    cameras: (r.cameras || []).map((c) => c.name), lights: (r.lights || []).length,
+    faces_given_inherited_material: r.faces_given_inherited_material, units: r.units, up_axis: r.up_axis,
+  };
+  if (a.blender_script) {
+    const script = path.join(dir, `${r.name}_blender.py`);
+    await fs.writeFile(script, blenderScript({ script, obj: r.obj, cameras: cams, lights, blend: path.join(dir, `${r.name}.blend`) }), 'utf8');
+    out.files.blender_script = script;
+    out.run = `blender -b -P "${script}"`;
+  }
+  if (Array.isArray(r.missing_scenes) && r.missing_scenes.length) out.missing_scenes = r.missing_scenes;
+  out.notes = ['Light power (20 W per fitting), material roughness and render settings in the Blender script are starting values.'];
+  if (!(r.lights || []).length) out.notes.push('No object tagged LT: the Blender scene gets no lights (add some, or a sky).');
+  return text(out);
+});
+
 // ---------------------------------------------------------------- modelling
 bridgeTool('create_box',
   'Create a rectangular box (group). width along X, depth along Y, height along Z, in mm.\n' +
@@ -1207,8 +1412,19 @@ bridgeTool('run_ruby',
   'use 1000.mm, x.to_mm. The whole snippet is one Undo step. Returns the last value (inspect) and the puts output.\n' +
   'Rules: do NOT call start_operation/commit_operation (the bridge already wraps the code in one Undo step); find entities with ' +
   'Sketchup.active_model.find_entity_by_id(id); check face.normal before pushpull; vertex coordinates inside a group are ' +
-  'local (multiply by the parent group transformation); end with a value or puts; never call exit.',
-  { code: Str }, DESTRUCTIVE);
+  'local (multiply by the parent group transformation); end with a value or puts; never call exit.\n' +
+  'Pitfalls: names can be stored in another Unicode form (accented letters decomposed), so materials["..."] or layers["..."] ' +
+  'may return nil: compare name.unicode_normalize(:nfc) instead. Build a new component in a group, then group.to_component ' +
+  '(entities of a fresh definitions.add can turn into "reference to deleted Entities"). add_faces_from_mesh drops non-planar ' +
+  'quads: give it triangles, and soften edges yourself. ' +
+  'undo_step=false runs without wrapping an Undo step (for code that opens its own, e.g. a renderer); deferred=true runs it ' +
+  'just after this call returns (long tasks such as a render, which would time out), then check it with ' +
+  'KhuongDoan::SuMcp.deferred_status.',
+  {
+    code: Str,
+    undo_step: z.boolean().default(true).describe('false = do not wrap the code in one Undo step'),
+    deferred: z.boolean().default(false).describe('true = run after this call returns (outside any Undo step); SketchUp is busy until it finishes'),
+  }, DESTRUCTIVE);
 
 // ---------------------------------------------------------------- view / export / file
 bridgeTool('set_view',
@@ -1266,8 +1482,16 @@ bridgeTool('export_png',
   }, DESTRUCTIVE);
 
 bridgeTool('export_file',
-  'Export the model to a 3D/2D file chosen by extension (dae, obj, stl, fbx, dwg, dxf, 3ds...). Some formats require SketchUp Pro.',
-  { path: Str }, DESTRUCTIVE);
+  'Export the model to a 3D/2D file chosen by extension (dae, obj, stl, fbx, dwg, dxf, 3ds...). Some formats require SketchUp Pro. ' +
+  'For obj, fbx, dae and 3ds, faces that inherit their material from a group or component get it for the export, so textures ' +
+  'and UVs are exported too (the model itself is not changed). For Blender use OBJ: SketchUp may write ASCII FBX, which ' +
+  'Blender cannot read.',
+  {
+    path: Str,
+    bake_materials: z.boolean().default(true).describe('Give inherited materials to the faces for the export (obj, fbx, dae, 3ds)'),
+    options: opt(jsonish(z.record(Str, z.union([z.boolean(), z.number(), Str])))).describe(
+      'SketchUp exporter options, e.g. {"swap_yz": true, "triangulated_faces": true, "texture_maps": true, "edges": false}'),
+  }, DESTRUCTIVE);
 
 bridgeTool('save_model',
   'Save the model. Empty path = overwrite the current file; with path = Save As.',

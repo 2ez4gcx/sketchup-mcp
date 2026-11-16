@@ -16,7 +16,7 @@ require 'fileutils'
 
 module KhuongDoan
   module SuMcp
-    VERSION      = '1.4.0'.freeze
+    VERSION      = '1.5.0'.freeze
     HOST         = '127.0.0.1'.freeze
     DEFAULT_PORT = 9876
     IN_TO_MM     = 25.4
@@ -266,12 +266,19 @@ module KhuongDoan
       ping model_info list_tags list_components list_materials selection_info
       quantity_takeoff measure_tags create_box create_shape create_lines insert_component
       transform_entities set_material set_tag create_tags make_group delete_entities select_entities
-      create_room check_model create_scenes check_design
+      create_room check_model create_scenes check_design export_for_render insert_furniture
       set_view export_png export_file save_model open_model new_model undo run_ruby
     ].freeze
 
+    # Served while a deferred run_ruby is still running (its code may let SketchUp handle events): reading only.
+    WHILE_DEFERRED = %w[ping model_info list_tags list_components list_materials selection_info run_ruby].freeze
+
     def self.dispatch(cmd, params)
       raise ArgumentError, "Unsupported command: #{cmd}. Available commands: #{COMMANDS.join(', ')}" unless COMMANDS.include?(cmd)
+      if @deferred && @deferred['state'] == 'running' && !WHILE_DEFERRED.include?(cmd)
+        raise ArgumentError, "SketchUp is still running a deferred run_ruby (id #{@deferred['id']}): wait until " \
+                             'KhuongDoan::SuMcp.deferred_status shows it done or error.'
+      end
       send("cmd_#{cmd}", params)
     end
 
@@ -314,6 +321,25 @@ module KhuongDoan
     def self.ensure_parent_dir(path)
       dir = File.dirname(path.to_s)
       FileUtils.mkdir_p(dir) unless dir.empty? || File.directory?(dir)
+    end
+
+    # NFC form of a name (Vietnamese and other accented names can be stored decomposed, NFD, e.g. from macOS).
+    def self.nfc(s)
+      t = utf8(s)
+      t.respond_to?(:unicode_normalize) ? t.unicode_normalize(:nfc) : t
+    rescue StandardError, LoadError # unicode_normalize loads its tables on first use
+      utf8(s)
+    end
+
+    # A tag, material or definition by name: exact first, else the same name in another Unicode form (SketchUp's [] is
+    # exact, while its "name is not unique" check is not, so a typed name must find the stored one).
+    def self.named(coll, name)
+      s = name.to_s
+      return nil if s.empty?
+      x = coll[s]
+      return x if x
+      key = nfc(s)
+      coll.find { |e| nfc(e.name) == key || (e.respond_to?(:display_name) && nfc(e.display_name) == key) }
     end
 
     def self.untagged?(layer)
@@ -360,9 +386,9 @@ module KhuongDoan
     def self.get_material(name, color = nil, update_existing = false)
       return nil if name.nil? || name.to_s.empty?
       mats = model.materials
-      mat = mats[name.to_s]
+      mat = named(mats, name)
       created = mat.nil?
-      mat = mats.add(name.to_s) if created
+      mat = mats.add(nfc(name)) if created
       mat.color = Sketchup::Color.new(color.to_s) if color && !color.to_s.empty? && (created || update_existing)
       mat
     end
@@ -378,10 +404,10 @@ module KhuongDoan
     # nil before SketchUp 2021 or without a name.
     def self.tag_folder(code, name)
       return nil if !folders_supported? || name.nil? || name.to_s.empty?
-      want = name.to_s
+      want = nfc(name)
       c = code.to_s
       f = model.layers.folders.find do |x|
-        n = x.name.to_s
+        n = nfc(x.name)
         n == want || (!c.empty? && (n == c || n.start_with?("#{c} ")))
       end
       f || model.layers.add_folder(want)
@@ -414,9 +440,9 @@ module KhuongDoan
     # A missing tag is created; `style` (folder/color) is only applied to a tag created here, never to an existing one.
     def self.get_tag(name, style = nil)
       return nil if name.nil? || name.to_s.empty?
-      tag = model.layers[name.to_s]
+      tag = named(model.layers, name)
       return tag if tag
-      tag = model.layers.add(name.to_s)
+      tag = model.layers.add(nfc(name))
       style_tag(tag, style)
       tag
     end
@@ -431,7 +457,7 @@ module KhuongDoan
     end
 
     def self.material_existed?(p)
-      !p['material'].to_s.empty? && !model.materials[p['material'].to_s].nil?
+      !p['material'].to_s.empty? && !named(model.materials, p['material']).nil?
     end
 
     # Result of create_*: adds a note when color was ignored because the material already exists.
@@ -477,8 +503,10 @@ module KhuongDoan
     # Read / statistics commands
     # ------------------------------------------------------------------
     def self.cmd_ping(_p)
-      { 'bridge' => VERSION, 'sketchup' => Sketchup.version, 'ruby' => RUBY_VERSION,
-        'port' => PORT, 'model' => utf8(model.title) }
+      r = { 'bridge' => VERSION, 'sketchup' => Sketchup.version, 'ruby' => RUBY_VERSION,
+            'port' => PORT, 'model' => utf8(model.title) }
+      r['deferred'] = { 'id' => @deferred['id'], 'state' => @deferred['state'] } if @deferred
+      r
     end
 
     def self.cmd_model_info(_p)
@@ -1241,7 +1269,7 @@ module KhuongDoan
                  raise ArgumentError, "File not found: #{path}" unless File.exist?(path)
                  m.definitions.load(path)
                else
-                 m.definitions[p['definition'].to_s] || raise(ArgumentError, "Definition '#{p['definition']}' not found")
+                 named(m.definitions, p['definition']) || raise(ArgumentError, "Definition '#{p['definition']}' not found")
                end
         tr = Geom::Transformation.new(point(p['position'] || [0, 0, 0]))
         if p['rotation_deg'] && p['rotation_deg'].to_f != 0
@@ -1279,7 +1307,7 @@ module KhuongDoan
 
     def self.cmd_set_material(p)
       ents = find_entities(p)
-      existed = !model.materials[p['material'].to_s].nil?
+      existed = !named(model.materials, p['material']).nil?
       update = p['update_existing'] == true
       with_operation('set_material') do |_m|
         mat = get_material(p['material'], p['color'], update)
@@ -1319,9 +1347,9 @@ module KhuongDoan
           t = { 'name' => t } unless t.is_a?(Hash)
           name = t['name'].to_s.strip
           raise ArgumentError, 'Every tag needs a name' if name.empty?
-          tag = m.layers[name]
+          tag = named(m.layers, name)
           created = tag.nil?
-          tag ||= m.layers.add(name)
+          tag ||= m.layers.add(nfc(name))
           color_done, folder_done = created || update ? style_tag(tag, t) : [false, false]
           h = { 'name' => utf8(tag.name), 'created' => created, 'color_applied' => color_done, 'folder_applied' => folder_done }
           h['folder'] = utf8(tag.folder.name) if tag.respond_to?(:folder) && tag.folder
@@ -1439,6 +1467,7 @@ module KhuongDoan
       ensure_parent_dir(path)
       w = h = nil
       ok = false
+      started = Time.now - 1
       begin
         cmd_set_view(p) if p['view']
         vw = view.vpwidth
@@ -1461,18 +1490,177 @@ module KhuongDoan
           view.invalidate
         end
       end
-      { 'ok' => ok ? true : false, 'path' => path, 'exists' => File.exist?(path),
+      ok ||= File.exist?(path) && File.size(path) > 0 && File.mtime(path) >= started
+      raise IOError, cannot_write(path) unless ok
+      { 'ok' => true, 'path' => path, 'exists' => File.exist?(path),
         'size_bytes' => File.exist?(path) ? File.size(path) : 0,
         'width' => w, 'height' => h, 'view' => (p['view'] || 'current').to_s, 'restored' => snap ? true : false }
     end
+
+    def self.cannot_write(path)
+      why = if File.exist?(path) && !File.writable?(path)
+              'the file is read-only'
+            elsif File.exist?(path)
+              'the file may be open or locked in another program (for example attached as an image in AutoCAD)'
+            else
+              'the folder may be read-only, or the name not allowed'
+            end
+      "SketchUp could not write #{path}: #{why}. Close it there or choose another file name."
+    end
+
+    # Formats whose exporters write textures, but only for faces that carry the material themselves.
+    BAKE_FORMATS = %w[obj fbx dae 3ds].freeze
+    EXPORT_DEFAULTS = { 'obj' => { 'texture_maps' => true, 'triangulated_faces' => true, 'edges' => false } }.freeze
 
     def self.cmd_export_file(p)
       path = p['path'].to_s
       raise ArgumentError, 'Missing path' if path.empty?
       ensure_parent_dir(path)
-      ok = model.export(path, false)
-      { 'ok' => ok ? true : false, 'path' => path, 'exists' => File.exist?(path),
-        'note' => 'The format follows the file extension (dae, obj, stl, dwg, dxf, 3ds, ...). Some formats require SketchUp Pro.' }
+      ext = File.extname(path).delete('.').downcase
+      opts = { :show_summary => false }
+      (EXPORT_DEFAULTS[ext] || {}).merge(p['options'].is_a?(Hash) ? p['options'] : {}).each { |k, v| opts[k.to_sym] = v }
+      m = model
+      baked = 0
+      ok = false
+      if p['bake_materials'] != false && BAKE_FORMATS.include?(ext)
+        # faces get the material they inherit for the export only: the operation is aborted, the model is unchanged
+        m.start_operation('MCP: export (temporary materials)', true)
+        begin
+          baked = bake_materials(m)
+          ok = m.export(path, opts)
+        ensure
+          m.abort_operation
+        end
+      else
+        ok = m.export(path, opts)
+      end
+      unless ok && File.exist?(path)
+        raise IOError, cannot_write(path) if File.exist?(path)
+        raise IOError, "SketchUp did not export #{path}: the #{ext.upcase} exporter may be missing (some formats need SketchUp " \
+                       'Pro), or the folder is read-only or the name not allowed.'
+      end
+      r = { 'ok' => true, 'path' => path, 'format' => ext, 'size_bytes' => File.size(path), 'faces_given_inherited_material' => baked,
+            'note' => 'The format follows the file extension (dae, obj, stl, fbx, dwg, dxf, 3ds, ...). Some formats require SketchUp Pro.' }
+      if ext == 'fbx' && File.binread(path, 18) != 'Kaydara FBX Binary'
+        r['warning'] = 'This FBX file is ASCII: Blender and several other programs only read binary FBX. For Blender, export OBJ ' \
+                       '(it comes with its .mtl and texture files).'
+      end
+      r
+    end
+
+    # Exporters give a texture (and UVs) only to faces that carry the material themselves; faces inheriting it from their
+    # group or component get none. For an export, the inherited material is put on those faces; an instance used with
+    # another material than the other instances of its component is made unique first. Only run inside an operation that
+    # is aborted afterwards. Returns the number of faces painted.
+    def self.bake_materials(m)
+      seen = {}
+      bake_split(m.entities, nil, seen, {})
+      n = 0
+      seen.each_value do |d, mat|
+        next unless mat
+        d.entities.each do |f|
+          next unless f.is_a?(Sketchup::Face)
+          if f.material.nil?
+            f.material = mat
+            n += 1
+          end
+          f.back_material = mat if f.back_material.nil?
+        end
+      end
+      n
+    end
+
+    # Each definition ends up with one inherited material (nil = none), splitting instances first: no face is painted
+    # before every split is done, so a copy never inherits paint meant for another instance. One copy per (component,
+    # material) is shared by all the instances that need it (300 chairs in two fabrics: one extra component).
+    def self.bake_split(ents, inherited, seen, copies)
+      ents.to_a.each do |e|
+        next unless e.is_a?(Sketchup::Group) || e.is_a?(Sketchup::ComponentInstance)
+        mat = e.material || inherited
+        d = e.definition
+        if seen.key?(d.entityID)
+          next if seen[d.entityID][1] == mat
+          key = [d.entityID, mat ? mat.entityID : 0]
+          if copies[key] && e.is_a?(Sketchup::ComponentInstance)
+            e.definition = copies[key]
+          else
+            e.make_unique
+            copies[key] = e.definition
+          end
+          d = e.definition
+          next if seen.key?(d.entityID)
+        end
+        seen[d.entityID] = [d, mat]
+        bake_split(d.entities, mat, seen, copies)
+      end
+    end
+
+    # ------------------------------------------------------------------
+    # export_for_render: an OBJ for Blender and other renderers (metres, Y up, triangulated, texture files, inherited
+    # materials given to the faces for the export), plus the cameras of the scenes and the lights (objects tagged LT)
+    # as data; the server writes them to cameras.json / lights.json next to the OBJ with an import script.
+    # ------------------------------------------------------------------
+    RENDER_OBJ_OPTIONS = { 'units' => 'm', 'swap_yz' => true, 'triangulated_faces' => true, 'doublesided_faces' => false,
+                           'edges' => false, 'texture_maps' => true }.freeze
+
+    def self.cmd_export_for_render(p)
+      dir = p['folder'].to_s
+      raise ArgumentError, 'folder is required (e.g. D:/Render/Showroom)' if dir.empty?
+      base = p['name'].to_s.strip
+      base = utf8(model.title).strip if base.empty?
+      base = 'model' if base.empty?
+      base = base.gsub(/[\\\/:*?"<>|]/, '_')
+      obj = File.join(dir, "#{base}.obj")
+      if File.exist?(obj) && p['overwrite'] != true
+        raise ArgumentError, "#{obj} already exists: ask the user, then call again with overwrite=true"
+      end
+      FileUtils.mkdir_p(dir)
+      opts = RENDER_OBJ_OPTIONS.merge(p['options'].is_a?(Hash) ? p['options'] : {})
+      r = cmd_export_file('path' => obj, 'options' => opts, 'bake_materials' => true)
+      only = p['scenes'].is_a?(Array) && !p['scenes'].empty? ? p['scenes'].map { |x| nfc(x) } : nil
+      cams = render_cameras(only, p['current_view'] == true)
+      { 'obj' => obj, 'mtl' => File.join(dir, "#{base}.mtl"), 'name' => base, 'folder' => dir,
+        'faces_given_inherited_material' => r['faces_given_inherited_material'], 'size_bytes' => r['size_bytes'],
+        'units' => opts['units'], 'up_axis' => opts['swap_yz'] ? 'Y' : 'Z', 'cameras' => cams, 'lights' => render_lights,
+        'missing_scenes' => only ? only - model.pages.map { |pg| nfc(pg.name) } : [] }
+    end
+
+    # One camera per scene (and the current view when asked, or when there is no scene): eye/target in mm in SketchUp
+    # axes (Z up), vertical field of view in degrees, the effective aspect ratio and the tags the scene hides.
+    def self.render_cameras(only, current)
+      view = model.active_view
+      vp = view.vpheight > 0 ? view.vpwidth.to_f / view.vpheight : 1.5
+      cam = lambda do |name, c, hidden|
+        aspect = c.respond_to?(:aspect_ratio) && c.aspect_ratio.to_f > 0 ? c.aspect_ratio.to_f : vp
+        fov = nil
+        if c.perspective?
+          fov = c.fov.to_f
+          # a horizontal field of view (Camera#fov_is_height? false) becomes the vertical one
+          fov = 2 * Math.atan(Math.tan(fov * Math::PI / 360) / aspect) * 180 / Math::PI if c.respond_to?(:fov_is_height?) && !c.fov_is_height?
+        end
+        { 'name' => name, 'eye' => pt_mm(c.eye).map { |v| v.round(1) }, 'target' => pt_mm(c.target).map { |v| v.round(1) },
+          'up' => c.up.to_a.map { |v| v.round(6) }, 'fov' => fov && fov.round(3), 'perspective' => c.perspective? ? true : false,
+          'height_mm' => c.perspective? ? nil : to_mm(c.height).round(1), 'aspect' => aspect.round(4), 'hidden_tags' => hidden }
+      end
+      out = []
+      pages = model.pages.select { |pg| only.nil? || only.include?(nfc(pg.name)) }
+      pages.each { |pg| out << cam.call(utf8(pg.name), pg.camera, pg.layers.map { |l| utf8(l.name) }) }
+      if current || out.empty?
+        out << cam.call('Current view', view.camera, model.layers.reject(&:visible?).map { |l| utf8(l.name) })
+      end
+      out
+    end
+
+    # Light fittings: the objects tagged LT (one per fitting, as interior_takeoff counts them), in mm.
+    def self.render_lights
+      ctx = light_ctx.merge('objs' => [], 'kids' => {})
+      dc_walk(model.entities, IDENTITY, nil, [], ctx, '', nil, true, [])
+      ctx['objs'].select { |o| o['code'] == 'LT' }.map do |o|
+        a = o['ax'][((0..2).to_a - [o['up']]).first] # plan_size[0] runs along this axis
+        { 'name' => o['name'], 'tag' => o['tag'], 'room' => o['room'], 'center' => pt_mm(o['c']).map { |v| v.round(1) },
+          'plan_size' => o['plan'].map { |v| to_mm(v).round(1) }, 'yaw' => (Math.atan2(a.y, a.x) * 180 / Math::PI).round(2),
+          'bottom' => to_mm(o['zmin']).round(1), 'top' => to_mm(o['zmax']).round(1) }
+      end
     end
 
     def self.cmd_save_model(p)
@@ -1499,36 +1687,80 @@ module KhuongDoan
     end
 
     # Run arbitrary Ruby inside SketchUp (like AutoCAD's run_lisp).
-    # The whole code is 1 Undo step. Returns the last value + the puts output.
+    # The whole code is 1 Undo step (undo_step=false: none, for code that opens its own, e.g. a renderer). deferred=true:
+    # run it once this command has answered (a long render would time out), result kept for deferred_status.
+    # Returns the last value + the puts output.
     def self.cmd_run_ruby(p)
       code = p['code'].to_s
       raise ArgumentError, 'Missing code' if code.strip.empty?
+      return run_ruby_later(code) if p['deferred'] == true
       out = StringIO.new
       old = $stdout
       result = nil
       begin
         $stdout = out
-        result = with_operation('run_ruby') do |_m|
-          begin
-            eval(code, TOPLEVEL_BINDING, 'mcp_run_ruby', 1) # rubocop:disable Security/Eval
-          rescue NoMemoryError, SignalException, StandardError, ScriptError
-            raise
-          rescue SystemExit => e
-            raise RuntimeError, 'run_ruby must not call exit/abort (SystemExit) - changes were rolled back', e.backtrace
-          rescue Exception => e # rubocop:disable Lint/RescueException
-            # e.g. SystemStackError (infinite recursion): convert to a regular error so Claude is told right away
-            raise RuntimeError, "#{e.class}: #{e.message}", e.backtrace
-          end
-        end
+        # inside a deferred run (its code let SketchUp take this command) no Undo step is opened: it would cut the run's own
+        wrap = p['undo_step'] != false && !(@deferred && @deferred['state'] == 'running')
+        result = wrap ? with_operation('run_ruby') { |_m| run_code(code) } : run_code(code, false)
       ensure
         $stdout = old
       end
-      text = begin
-        result.inspect
-      rescue StandardError
-        result.to_s
+      { 'result' => utf8(safe_inspect(result))[0, MAX_TEXT], 'stdout' => utf8(out.string)[0, MAX_TEXT] }
+    end
+
+    def self.run_code(code, undo_step = true)
+      eval(code, TOPLEVEL_BINDING, 'mcp_run_ruby', 1) # rubocop:disable Security/Eval
+    rescue NoMemoryError, SignalException, StandardError, ScriptError
+      raise
+    rescue SystemExit => e
+      raise RuntimeError, "run_ruby must not call exit/abort (SystemExit)#{undo_step ? ' - changes were rolled back' : ''}", e.backtrace
+    rescue Exception => e # rubocop:disable Lint/RescueException
+      # e.g. SystemStackError (infinite recursion): convert to a regular error so Claude is told right away
+      raise RuntimeError, "#{e.class}: #{e.message}", e.backtrace
+    end
+
+    def self.safe_inspect(v)
+      v.inspect
+    rescue StandardError
+      v.to_s
+    end
+
+    # The last deferred run_ruby: {id, state (scheduled/running/done/error), result or error, stdout, times}.
+    def self.deferred_status
+      @deferred
+    end
+
+    def self.deferred_busy?
+      @deferred && %w[scheduled running].include?(@deferred['state'])
+    end
+
+    def self.run_ruby_later(code)
+      if deferred_busy?
+        raise ArgumentError, "A deferred run_ruby (id #{@deferred['id']}) is still #{@deferred['state']}: wait until " \
+                             'KhuongDoan::SuMcp.deferred_status shows it done or error.'
       end
-      { 'result' => utf8(text)[0, MAX_TEXT], 'stdout' => utf8(out.string)[0, MAX_TEXT] }
+      id = (@deferred_n = (@deferred_n || 0) + 1)
+      st = @deferred = { 'id' => id, 'state' => 'scheduled', 'scheduled_at' => Time.now.to_s }
+      UI.start_timer(0, false) do
+        next unless st['state'] == 'scheduled' # the timer can fire twice in some versions
+        st['state'] = 'running'
+        out = StringIO.new
+        old = $stdout
+        begin
+          $stdout = out
+          r = run_code(code, false)
+          st.merge!('state' => 'done', 'result' => utf8(safe_inspect(r))[0, MAX_TEXT])
+        rescue Exception => e # rubocop:disable Lint/RescueException
+          st.merge!('state' => 'error', 'error' => utf8("#{e.class}: #{e.message}")[0, MAX_TEXT])
+        ensure
+          $stdout = old
+          st['stdout'] = utf8(out.string)[0, MAX_TEXT]
+          st['finished_at'] = Time.now.to_s
+        end
+      end
+      { 'deferred' => true, 'id' => id, 'state' => 'scheduled',
+        'note' => 'The code runs in SketchUp right after this answer, outside any Undo step. SketchUp does not answer ' \
+                  'other commands until it has finished. Check it with run_ruby code "KhuongDoan::SuMcp.deferred_status".' }
     end
 
     # ------------------------------------------------------------------
@@ -1540,14 +1772,14 @@ module KhuongDoan
     #   ceiling board - underside at FFL + height;
     #   skirting      - one run per edge inside the wall finish, interrupted at doors, stopping at the wall finish of
     #                   the next wall at convex corners;
-    #   doors/windows - a leaf/pane in each opening that has a tag (DR/WN: counted as items).
+    #   doors/windows - a leaf/pane in each opening that has a tag (DR door, WN window, GL glass: counted as items).
     # Lengths in mm. One Undo step.
     # ------------------------------------------------------------------
     ROOM_WORDS = {
       'en' => { 'floor' => 'floor', 'ceiling' => 'ceiling', 'wall' => 'wall', 'skirting' => 'skirting',
-                'door' => 'door', 'window' => 'window' },
+                'door' => 'door', 'window' => 'window', 'glass' => 'glass', 'opening' => 'opening' },
       'vi' => { 'floor' => "sàn", 'ceiling' => "trần", 'wall' => "tường", 'skirting' => 'len',
-                'door' => "cửa", 'window' => "cửa sổ" }
+                'door' => "cửa", 'window' => "cửa sổ", 'glass' => "vách kính", 'opening' => "ô mở" }
     }.freeze
 
     def self.num(v, name)
@@ -1584,24 +1816,46 @@ module KhuongDoan
     end
 
     # A box in edge axes: s0..s1 along the edge, z0..z1 up, off..off + t into the room (mm); holes cut through it.
-    # Returns false when nothing is left (an opening covers the whole panel).
+    # The face is made of the cells of a grid through the hole edges, leaving out the cells inside a hole, and merged
+    # again by erasing the edges between cells (drawing a hole on a face is not reliable: SketchUp may not split the face
+    # when the hole touches two of its sides, e.g. a floor-to-ceiling glass wall next to a door). Every piece left is
+    # pushed into a box. Returns false when nothing is left (an opening covers the whole panel).
     def self.room_panel(ents, s0, s1, z0, z1, off, t, holes = [])
-      pt = lambda { |s, z| Geom::Point3d.new(s.mm, off.mm, z.mm) }
-      ents.add_face(pt.call(s0, z0), pt.call(s1, z0), pt.call(s1, z1), pt.call(s0, z1))
-      holes.each do |h0, h1, hz0, hz1|
-        hole = ents.add_face(pt.call(h0, hz0), pt.call(h1, hz0), pt.call(h1, hz1), pt.call(h0, hz1))
-        hole.erase! if hole && hole.valid?
+      pt = lambda { |x, z| Geom::Point3d.new(x.mm, off.mm, z.mm) }
+      breaks = lambda do |lo, hi, vals|
+        out = [lo.to_f]
+        (vals.map { |v| [[v.to_f, lo.to_f].max, hi.to_f].min } + [hi.to_f]).sort.each do |v|
+          out << v if v - out.last > 0.5 # cuts closer than 0.5 mm are one cut
+        end
+        out[-1] = hi.to_f
+        out
       end
-      ents.grep(Sketchup::Edge).select { |e| e.faces.empty? }.each { |e| e.erase! if e.valid? }
+      xs = breaks.call(s0, s1, holes.flat_map { |h| [h[0], h[1]] })
+      zs = breaks.call(z0, z1, holes.flat_map { |h| [h[2], h[3]] })
+      xs.each_cons(2) do |x0, x1|
+        zs.each_cons(2) do |c0, c1|
+          cx = (x0 + x1) / 2.0
+          cz = (c0 + c1) / 2.0
+          next if holes.any? { |h0, h1, hz0, hz1| cx > h0 && cx < h1 && cz > hz0 && cz < hz1 }
+          ents.add_face(pt.call(x0, c0), pt.call(x1, c0), pt.call(x1, c1), pt.call(x0, c1))
+        end
+      end
+      ents.grep(Sketchup::Edge).each { |e| e.erase! if e.valid? && e.faces.size == 2 } # merge the cells
+      # closing a ring of cells round a hole leaves its last edge with the same face on both sides: drop such leftovers
+      ents.grep(Sketchup::Edge).each { |e| e.erase! if e.valid? && e.faces.size < 2 && !face_border?(e) }
       faces = ents.grep(Sketchup::Face).to_a
       return false if faces.empty?
-      # an opening running full height or full width splits the panel: push every piece
       faces.each do |face|
         next unless face.valid?
         face.reverse! if face.normal.y < 0
         face.pushpull(t.mm)
       end
       true
+    end
+
+    # Is the edge on the outline of one of its faces (a real border), not a seam inside it?
+    def self.face_border?(e)
+      e.faces.any? { |f| f.loops.any? { |l| l.edges.include?(e) } }
     end
 
     def self.seg_cross?(p1, p2, q1, q2)
@@ -1675,15 +1929,22 @@ module KhuongDoan
           raise ArgumentError, "Opening on edge #{o['edge']} does not fit: the edge is #{lens[e].round} mm long"
         end
         raise ArgumentError, "Opening on edge #{o['edge']} is higher than the room (#{height.round} mm)" if sill + h > height + 0.5
+        # what fills it: the type given, else the tag code (DR door, WN window, GL glass), else a door below 50 mm
         code = tag_code(o['tag'].to_s)[0]
-        door = code == 'DR' || (code != 'WN' && sill < 50.0) # a door may have a threshold; the tag code decides first
+        kind = o['type'].to_s
+        unless kind.empty? || %w[door window glass opening].include?(kind)
+          raise ArgumentError, "Opening on edge #{o['edge']}: type must be door, window, glass or opening"
+        end
+        if kind.empty?
+          kind = { 'DR' => 'door', 'WN' => 'window', 'GL' => 'glass' }[code] || (sill < 50.0 ? 'door' : 'window')
+        end
         { 'edge' => e, 'from' => [off, 0.0].max, 'to' => [off + w, lens[e]].min, 'sill' => [sill, 0.0].max,
-          'top' => [sill + h, height].min, 'door' => door, 'tag' => o['tag'].to_s, 'material' => o['material'],
+          'top' => [sill + h, height].min, 'kind' => kind, 'tag' => o['tag'].to_s, 'material' => o['material'],
           'color' => o['color'], 'name' => o['name'], 'given' => o['edge'] }
       end
       opens.group_by { |o| o['edge'] }.each_value do |list|
-        list.sort_by { |o| o['from'] }.each_cons(2) do |x, y|
-          next unless y['from'] < x['to'] - 0.5 && y['sill'] < x['top'] && x['sill'] < y['top']
+        list.combination(2).each do |x, y|
+          next unless y['from'] < x['to'] - 0.5 && x['from'] < y['to'] - 0.5 && y['sill'] < x['top'] && x['sill'] < y['top']
           raise ArgumentError, "Two openings overlap on edge #{x['given']}"
         end
       end
@@ -1781,17 +2042,28 @@ module KhuongDoan
             q['skirting_m'] = (total / 1000.0).round(3)
           end
           opens.each_with_index do |o, k|
-            next if o['tag'].empty?
+            next if o['tag'].empty? || o['kind'] == 'opening' # a hole only
             i = o['edge']
             g = room_edge_group(ents, pts[i], pts[(i + 1) % n], ffl)
-            th = o['door'] ? 40.0 : 10.0 # door leaf / glass pane, centred in the wall finish
+            th = o['kind'] == 'door' ? 40.0 : 10.0 # door leaf / glass pane, centred in the wall finish
             room_panel(g.entities, o['from'], o['to'], o['sill'], o['top'], wall_t / 2.0 - th / 2.0, th)
-            label = o['name'].to_s.empty? ? "#{o['door'] ? words['door'] : words['window']} #{k + 1}" : o['name'].to_s
-            add.call(room_finish(g, o, room_part_name(o['tag'], name, label), styles), o['door'] ? 'door' : 'window')
+            label = o['name'].to_s.empty? ? "#{words[o['kind']]} #{k + 1}" : o['name'].to_s
+            cfg = o
+            if o['kind'] != 'door' && o['material'].to_s.empty? && o['color'].to_s.empty?
+              # a pane without a material gets a see-through glass one
+              glass = FW_NAMES[p['language'] == 'vi' ? 'vi' : 'en']['glass']
+              fresh = named(m.materials, glass).nil?
+              get_material(glass, FW_COLORS['glass']).alpha = 0.35 if fresh
+              cfg = o.merge('material' => glass)
+            end
+            add.call(room_finish(g, cfg, room_part_name(o['tag'], name, label), styles), o['kind'])
           end
           { 'room' => entity_summary(room), 'parts' => parts, 'quantities' => q,
             'note' => 'Edges are numbered from 1 (edge 1 goes from point 1 to point 2). The floor finish lies below the ' \
-                      'finished floor level, the ceiling board above FFL + height; walls and skirting are inside the outline.' }
+                      'finished floor level, the ceiling board above FFL + height; walls and skirting are inside the outline. ' \
+                      'Wall, skirting, door and window groups have their own axes (origin at the start of their edge, x along ' \
+                      'it, y into the room): to add geometry given in model coordinates inside one, transform the points by ' \
+                      'the inverse of its transformation and of the room group\'s.' }
         ensure
           m.active_layer = old_layer if old_layer && old_layer.valid?
         end
@@ -2142,8 +2414,9 @@ module KhuongDoan
       m = model
       t = m.layers.find { |l| l.get_attribute('su_mcp', 'section_tag') }
       return t if t
-      nm = name
-      nm = m.layers.respond_to?(:unique_name) ? m.layers.unique_name(nm) : "#{nm} (MCP)" if m.layers[nm]
+      nm = nfc(name)
+      k = 1
+      nm = "#{nfc(name)} (#{k += 1})" while named(m.layers, nm) # never take over a tag of the user's
       t = m.layers.add(nm)
       t.visible = false
       m.pages.each { |pg| pg.set_visibility(t, false) if pg.respond_to?(:set_visibility) }
@@ -2369,7 +2642,8 @@ module KhuongDoan
           ctx = light_ctx.merge('objs' => [], 'kids' => {})
           rooms, levels = rooms_of_model(ctx)
           levels.each { |lv| lv['entity'].set_attribute('su_mcp', 'level', true) }
-          rooms = rooms.select { |r| only.include?(r['name']) || only.any? { |o| r['name'].end_with?(" / #{o}") } } unless only.empty?
+          want_rooms = only.map { |o| nfc(o) }
+          rooms = rooms.select { |r| n = nfc(r['name']); want_rooms.include?(n) || want_rooms.any? { |o| n.end_with?(" / #{o}") } } unless only.empty?
           dc_walk(m.entities, IDENTITY, nil, [], ctx, '', nil, true, [])
           objs = ctx['objs']
           lang = p['language'].to_s
@@ -2868,6 +3142,467 @@ module KhuongDoan
       t.downcase
     rescue StandardError, LoadError # unicode_normalize loads its tables on first use
       s.to_s.downcase
+    end
+
+    # ------------------------------------------------------------------
+    # insert_furniture: detailed furniture and a plant built from smooth meshes (rounded boxes, puffy cushions, lathed and
+    # lofted shapes, tapered tubes, a tree of leaf instances), as one group with the tag given: one item for the takeoff.
+    # Built round the origin with the front towards -Y and the floor at z = 0, then placed. After the furniture library
+    # made for a showroom project. mm; one Undo step.
+    # ------------------------------------------------------------------
+    FW_TYPES = %w[sofa_track_arm swivel_lounge_chair round_glass_coffee_table potted_tree_ficus pillow].freeze
+    FW_SMOOTH = 12 # Geom::PolygonMesh::AUTO_SOFTEN | SMOOTH_SOFT_EDGES
+    FW_COLORS = { 'fabric' => '#968f88', 'metal' => '#2d2d2d', 'glass' => '#cde4e4', 'pot' => '#e8e6e0', 'soil' => '#3e2e22',
+                  'bark' => '#604a36', 'leaf' => '#3a6830', 'pillow' => '#e2d8c4', 'pillow2' => '#b09678', 'paper' => '#eeece4',
+                  'paper2' => '#a82c28' }.freeze
+    FW_NAMES = {
+      'en' => { 'fabric' => 'Fabric warm grey', 'metal' => 'Metal black', 'glass' => 'Glass clear', 'pot' => 'Ceramic white',
+                'soil' => 'Soil', 'bark' => 'Bark', 'leaf' => 'Leaf green', 'pillow' => 'Fabric cream', 'pillow2' => 'Fabric caramel',
+                'paper' => 'Paper white', 'paper2' => 'Paper red' },
+      'vi' => { 'fabric' => 'Vải xám ấm', 'metal' => 'Kim loại đen', 'glass' => 'Kính trong', 'pot' => 'Gốm trắng',
+                'soil' => 'Đất trồng', 'bark' => 'Vỏ cây', 'leaf' => 'Lá xanh', 'pillow' => 'Vải kem', 'pillow2' => 'Vải nâu caramel',
+                'paper' => 'Giấy trắng', 'paper2' => 'Giấy đỏ' }
+    }.freeze
+    FW_WORDS = {
+      'en' => { 'leg' => 'leg', 'base' => 'base', 'arm' => 'arm', 'back' => 'back', 'seat' => 'seat cushion',
+                'back_cushion' => 'back cushion', 'pillow' => 'pillow', 'swivel' => 'swivel', 'column' => 'column',
+                'shell' => 'shell', 'top' => 'glass top', 'foot' => 'foot', 'bracket' => 'bracket', 'magazine' => 'magazine',
+                'pot' => 'pot', 'soil' => 'soil', 'trunk' => 'trunk', 'branch' => 'branch', 'leaf' => 'Ficus leaf',
+                'sofa_track_arm' => 'Sofa', 'swivel_lounge_chair' => 'Swivel lounge chair',
+                'round_glass_coffee_table' => 'Round glass coffee table', 'potted_tree_ficus' => 'Ficus tree' },
+      'vi' => { 'leg' => 'chân', 'base' => 'đế', 'arm' => 'tay', 'back' => 'lưng', 'seat' => 'nệm ngồi',
+                'back_cushion' => 'nệm tựa', 'pillow' => 'gối', 'swivel' => 'bầu xoay', 'column' => 'trụ',
+                'shell' => 'vỏ ghế', 'top' => 'mặt kính', 'foot' => 'chân đế', 'bracket' => 'tay đỡ', 'magazine' => 'tạp chí',
+                'pot' => 'chậu', 'soil' => 'đất', 'trunk' => 'thân', 'branch' => 'cành', 'leaf' => 'Lá cây ficus',
+                'sofa_track_arm' => 'Sofa', 'swivel_lounge_chair' => 'Ghế xoay', 'round_glass_coffee_table' => 'Bàn trà kính tròn',
+                'potted_tree_ficus' => 'Cây ficus' }
+    }.freeze
+
+    def self.fw_pt(x, y, z)
+      Geom::Point3d.new(x.to_f.mm, y.to_f.mm, z.to_f.mm)
+    end
+
+    # verts [[x, y, z] mm], faces [[i, j, k(, l)]] counter-clockwise seen from outside. Curved quads are rarely planar and
+    # SketchUp drops non-planar polygons (leaving loose edges): every polygon is split into a triangle fan.
+    def self.fw_mesh(ents, name, material, verts, faces, smooth = true, back = nil)
+      pm = Geom::PolygonMesh.new(verts.size, faces.size * 2)
+      idx = verts.map { |v| pm.add_point(fw_pt(*v)) }
+      faces.each do |f|
+        (1...(f.size - 1)).each { |k| pm.add_polygon(idx[f[0]], idx[f[k]], idx[f[k + 1]]) }
+      end
+      g = ents.add_group
+      g.name = name if name
+      g.entities.add_faces_from_mesh(pm, smooth ? FW_SMOOTH : 0, material, back)
+      fw_soften(g.entities) if smooth
+      g
+    end
+
+    # Soften and smooth the edges whose faces meet at less than max_deg (the mesh flags alone do not).
+    def self.fw_soften(ents, max_deg = 50)
+      lim = max_deg.degrees
+      ents.each do |e|
+        next unless e.is_a?(Sketchup::Edge)
+        fs = e.faces
+        e.soft = e.smooth = true if fs.size == 2 && fs[0].normal.angle_between(fs[1].normal) < lim
+      end
+    end
+
+    def self.fw_clamp(v, lo, hi)
+      v < lo ? lo : (v > hi ? hi : v)
+    end
+
+    def self.fw_axis_samples(h, r, m)
+      d = (0..m).map { |k| r * Math.tan(Math::PI / 4 * k / m) }
+      (d.reverse.map { |x| -h + r - x } + d.map { |x| h - r + x }).uniq
+    end
+
+    # Rounded box centred at the origin: half sizes hx, hy, hz, edge radius r (mm).
+    def self.fw_rounded_box_mesh(hx, hy, hz, r, m = 4)
+      r = [r, hx, hy, hz].min * 0.999
+      sx = fw_axis_samples(hx, r, m)
+      sy = fw_axis_samples(hy, r, m)
+      sz = fw_axis_samples(hz, r, m)
+      verts = []
+      faces = []
+      shape = lambda do |x, y, z|
+        ix = fw_clamp(x, -(hx - r), hx - r)
+        iy = fw_clamp(y, -(hy - r), hy - r)
+        iz = fw_clamp(z, -(hz - r), hz - r)
+        dx = x - ix
+        dy = y - iy
+        dz = z - iz
+        l = Math.sqrt(dx * dx + dy * dy + dz * dz)
+        l < 1e-9 ? [x, y, z] : [ix + dx / l * r, iy + dy / l * r, iz + dz / l * r]
+      end
+      side = lambda do |us, vs, fn|
+        base = verts.size
+        us.each { |u| vs.each { |v| verts << shape.call(*fn.call(u, v)) } }
+        nv = vs.size
+        (us.size - 1).times do |i|
+          (nv - 1).times do |j|
+            a = base + i * nv + j
+            faces << [a, a + nv, a + nv + 1, a + 1]
+          end
+        end
+      end
+      side.call(sy, sz, lambda { |u, v| [hx, u, v] })
+      side.call(sz, sy, lambda { |u, v| [-hx, v, u] })
+      side.call(sz, sx, lambda { |u, v| [v, hy, u] })
+      side.call(sx, sz, lambda { |u, v| [u, -hy, v] })
+      side.call(sx, sy, lambda { |u, v| [u, v, hz] })
+      side.call(sy, sx, lambda { |u, v| [v, u, -hz] })
+      [verts, faces]
+    end
+
+    def self.fw_rounded_box(ents, name, material, mn, mx, r, tr = nil)
+      c = [(mn[0] + mx[0]) / 2.0, (mn[1] + mx[1]) / 2.0, (mn[2] + mx[2]) / 2.0]
+      v, f = fw_rounded_box_mesh((mx[0] - mn[0]) / 2.0, (mx[1] - mn[1]) / 2.0, (mx[2] - mn[2]) / 2.0, r)
+      g = fw_mesh(ents, name, material, v, f)
+      t = Geom::Transformation.translation(fw_pt(*c))
+      g.transform!(tr ? t * tr : t)
+      g
+    end
+
+    # Lathe: profile [[r, z], ...] from the bottom of the axis to its top, turned about the Z axis at (cx, cy).
+    def self.fw_lathe(ents, name, material, cx, cy, profile, n = 48)
+      verts = []
+      faces = []
+      rings = profile.map do |r, z|
+        if r.abs < 1e-6
+          verts << [0, 0, z]
+          [verts.size - 1]
+        else
+          (0...n).map do |j|
+            a = 2 * Math::PI * j / n
+            verts << [r * Math.cos(a), r * Math.sin(a), z]
+            verts.size - 1
+          end
+        end
+      end
+      rings.each_cons(2) do |lo, hi|
+        n.times do |j|
+          j1 = (j + 1) % n
+          faces << if lo.size == 1 then [lo[0], hi[j1], hi[j]]
+                   elsif hi.size == 1 then [lo[j], lo[j1], hi[0]]
+                   else [lo[j], lo[j1], hi[j1], hi[j]]
+                   end
+        end
+      end
+      g = fw_mesh(ents, name, material, verts, faces)
+      g.transform!(Geom::Transformation.translation(fw_pt(cx, cy, 0)))
+      g
+    end
+
+    # Profile of a cylinder with filleted top and bottom edges.
+    def self.fw_rounded_cyl(r, z0, z1, f, seg = 5, r_top = nil)
+      r_top ||= r
+      pts = [[0, z0]]
+      seg.times { |k| a = Math::PI / 2 * (k + 1) / seg; pts << [r - f + f * Math.sin(a), z0 + f - f * Math.cos(a)] }
+      seg.times { |k| a = Math::PI / 2 * (k + 1) / seg; pts << [r_top - f + f * Math.cos(a), z1 - f + f * Math.sin(a)] }
+      pts << [0, z1]
+    end
+
+    def self.fw_taper_bar(ents, name, material, length, w0, w1, h0, h1, tr)
+      v = []
+      [[0, w0, h0], [length, w1, h1]].each { |x, w, h| v += [[x, -w / 2.0, 0], [x, w / 2.0, 0], [x, w / 2.0, h], [x, -w / 2.0, h]] }
+      f = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]]
+      g = fw_mesh(ents, name, material, v, f, false)
+      g.transform!(tr)
+      g
+    end
+
+    # Tube along a polyline [[x, y, z]...] with one radius per point. Each ring's frame is carried on from the previous
+    # one (parallel transport), so consecutive rings never turn against each other.
+    def self.fw_tube(ents, name, material, pts, radii, n = 10)
+      verts = []
+      faces = []
+      u = nil
+      pts.each_with_index do |p, i|
+        q = pts[[i + 1, pts.size - 1].min]
+        o = pts[[i - 1, 0].max]
+        d = Geom::Vector3d.new(q[0] - o[0], q[1] - o[1], q[2] - o[2]).normalize
+        if u
+          k = u.dot(d)
+          v = Geom::Vector3d.new(u.x - d.x * k, u.y - d.y * k, u.z - d.z * k)
+          u = v.length > 1e-6 ? v.normalize : nil
+        end
+        u ||= (d.parallel?(Z_AXIS) ? X_AXIS : Z_AXIS).cross(d).normalize
+        w = d.cross(u).normalize
+        n.times do |j|
+          a = 2 * Math::PI * j / n
+          c = Math.cos(a)
+          s = Math.sin(a)
+          verts << [p[0] + radii[i] * (c * u.x + s * w.x), p[1] + radii[i] * (c * u.y + s * w.y), p[2] + radii[i] * (c * u.z + s * w.z)]
+        end
+      end
+      (pts.size - 1).times { |i| n.times { |j| j1 = (j + 1) % n; faces << [i * n + j, i * n + j1, (i + 1) * n + j1, (i + 1) * n + j] } }
+      faces << (0...n).to_a.reverse
+      faces << ((pts.size - 1) * n...(pts.size * n)).to_a
+      fw_mesh(ents, name, material, verts, faces)
+    end
+
+    # Puffy cushion centred at the origin: x = width, y = thickness, z = height.
+    def self.fw_pillow_mesh(w, h, t, n = 14, edge = 12.0)
+      verts = []
+      faces = []
+      [-1, 1].each do |side|
+        (0..n).each do |i|
+          (0..n).each do |j|
+            x = -w / 2.0 + w * i / n
+            z = -h / 2.0 + h * j / n
+            u = 2 * x / w
+            v = 2 * z / h
+            d = edge + (t / 2.0 - edge) * ([0.0, (1 - u * u) * (1 - v * v)].max**0.55)
+            verts << [x * (1 - 0.05 * (1 - v * v)), side * d, z * (1 - 0.05 * (1 - u * u))]
+          end
+        end
+      end
+      id = lambda { |s, i, j| s * (n + 1)**2 + i * (n + 1) + j }
+      n.times do |i|
+        n.times do |j|
+          faces << [id.call(0, i, j), id.call(0, i + 1, j), id.call(0, i + 1, j + 1), id.call(0, i, j + 1)]
+          faces << [id.call(1, i, j), id.call(1, i, j + 1), id.call(1, i + 1, j + 1), id.call(1, i + 1, j)]
+        end
+      end
+      border = (0...n).map { |i| [i, 0] } + (0...n).map { |j| [n, j] } + n.downto(1).map { |i| [i, n] } + n.downto(1).map { |j| [0, j] }
+      border.each_with_index do |a, k|
+        b = border[(k + 1) % border.size]
+        faces << [id.call(0, *a), id.call(1, *a), id.call(1, *b), id.call(0, *b)]
+      end
+      [verts, faces]
+    end
+
+    # Sofa with track arms: w x d, seats cushions, back cushions tilted 9 degrees, two scatter pillows. Front at -Y.
+    def self.fw_sofa(e, w, d, seats, mat, words)
+      x0 = -w / 2.0
+      x1 = w / 2.0
+      y0 = -d / 2.0
+      y1 = d / 2.0
+      arm = [170.0, w / 8.0].min
+      [[x0 + 60, y0 + 80], [x1 - 60, y0 + 80], [x0 + 60, y1 - 60], [x1 - 60, y1 - 60]].each_with_index do |(x, y), i|
+        fw_lathe(e, "#{words['leg']} #{i + 1}", mat['metal'], x, y, [[0, 0], [16, 0], [20, 70], [0, 70]], 24)
+      end
+      fw_rounded_box(e, words['base'], mat['fabric'], [x0 + 10, y0 + 30, 70], [x1 - 10, y1, 300], 25)
+      fw_rounded_box(e, "#{words['arm']} 1", mat['fabric'], [x0, y0, 70], [x0 + arm, y1, 620], 45)
+      fw_rounded_box(e, "#{words['arm']} 2", mat['fabric'], [x1 - arm, y0, 70], [x1, y1, 620], 45)
+      fw_rounded_box(e, words['back'], mat['fabric'], [x0 + arm, y1 - 170, 300], [x1 - arm, y1, 700], 40)
+      cw = (w - 2 * arm) / seats
+      seats.times do |i|
+        a = x0 + arm + i * cw
+        fw_rounded_box(e, "#{words['seat']} #{i + 1}", mat['fabric'], [a + 6, y0 + 40, 300], [a + cw - 6, y1 - 170, 460], 55)
+        fw_rounded_box(e, "#{words['back_cushion']} #{i + 1}", mat['fabric'], [a + 8, y1 - 360, 440], [a + cw - 8, y1 - 170, 820], 60,
+                       Geom::Transformation.rotation(ORIGIN, X_AXIS, -9.degrees))
+      end
+      pw = [440.0, cw * 0.8].min
+      [[x0 + arm + pw / 2 + 25, mat['pillow'], 6], [x1 - arm - pw / 2 - 25, mat['pillow2'], -5]].each_with_index do |(x, m, yaw), i|
+        v, f = fw_pillow_mesh(pw, 420, 150)
+        pg = fw_mesh(e, "#{words['pillow']} #{i + 1}", m, v, f)
+        pg.transform!(Geom::Transformation.translation(fw_pt(x, y1 - 435, 685)) * Geom::Transformation.rotation(ORIGIN, Z_AXIS, yaw.degrees) *
+                      Geom::Transformation.rotation(ORIGIN, X_AXIS, -9.degrees))
+      end
+    end
+
+    # Swivel lounge chair, about 780 mm across: star base, upholstered drum, seat and a lofted shell open at the front (-Y).
+    def self.fw_chair(e, mat, words)
+      4.times do |k|
+        fw_taper_bar(e, "#{words['leg']} #{k + 1}", mat['metal'], 360, 50, 30, 40, 22,
+                     Geom::Transformation.rotation(ORIGIN, Z_AXIS, (45 + 90 * k).degrees))
+      end
+      fw_lathe(e, words['swivel'], mat['metal'], 0, 0, [[0, 0], [55, 0], [45, 60], [0, 60]], 32)
+      fw_lathe(e, words['column'], mat['metal'], 0, 0, [[0, 60], [26, 60], [26, 300], [0, 300]], 24)
+      fw_lathe(e, words['base'], mat['fabric'], 0, 0, fw_rounded_cyl(355, 280, 410, 35, 5, 375))
+      fw_lathe(e, words['seat'], mat['fabric'], 0, -15, fw_rounded_cyl(305, 400, 485, 35))
+      # shell with a thickness: high at the back (+Y), open at the front
+      n = 48
+      rows = 8
+      a0 = -22.0
+      a1 = 202.0
+      th = 60.0
+      top = lambda { |a| u = (a - 90.0).abs / ((a1 - a0) / 2); 170 + 300 * (1 - u**1.6) }
+      verts = []
+      faces = []
+      [0, 1].each do |layer|
+        (0..n).each do |j|
+          a = a0 + (a1 - a0) * j / n
+          (0..rows).each do |k|
+            t = k.to_f / rows
+            r = 360 + 30 * t - layer * th
+            verts << [r * Math.cos(a.degrees), r * Math.sin(a.degrees), 360 + t * top.call(a)]
+          end
+        end
+      end
+      id = lambda { |l, j, k| l * (n + 1) * (rows + 1) + j * (rows + 1) + k }
+      n.times do |j|
+        rows.times do |k|
+          faces << [id.call(0, j, k), id.call(0, j + 1, k), id.call(0, j + 1, k + 1), id.call(0, j, k + 1)]
+          faces << [id.call(1, j, k), id.call(1, j, k + 1), id.call(1, j + 1, k + 1), id.call(1, j + 1, k)]
+        end
+        faces << [id.call(0, j, rows), id.call(0, j + 1, rows), id.call(1, j + 1, rows), id.call(1, j, rows)]
+        faces << [id.call(0, j, 0), id.call(1, j, 0), id.call(1, j + 1, 0), id.call(0, j + 1, 0)]
+      end
+      rows.times do |k|
+        faces << [id.call(0, 0, k), id.call(0, 0, k + 1), id.call(1, 0, k + 1), id.call(1, 0, k)]
+        faces << [id.call(0, n, k), id.call(1, n, k), id.call(1, n, k + 1), id.call(0, n, k + 1)]
+      end
+      fw_mesh(e, words['shell'], mat['fabric'], verts, faces)
+    end
+
+    # Round coffee table, 900 mm glass top at 430 mm, column and cross base; decor = three magazines on it.
+    def self.fw_table(e, mat, words, decor)
+      fw_lathe(e, words['top'], mat['glass'], 0, 0, [[0, 418], [447, 418], [450, 421], [450, 427], [447, 430], [0, 430]], 96)
+      fw_lathe(e, words['column'], mat['metal'], 0, 0, [[0, 20], [28, 20], [28, 418], [0, 418]], 24)
+      [45, 135].each do |ang|
+        rot = Geom::Transformation.rotation(ORIGIN, Z_AXIS, ang.degrees)
+        fw_rounded_box(e, words['foot'], mat['metal'], [-360, -20, 0], [360, 20, 22], 6).transform!(rot)
+        fw_rounded_box(e, words['bracket'], mat['metal'], [-300, -15, 400], [300, 15, 416], 4).transform!(rot)
+      end
+      return unless decor
+      [[-120, 50, 18, mat['paper']], [-80, 20, 31, mat['paper2']], [170, -120, -12, mat['paper']]].each_with_index do |(dx, dy, ang, m), k|
+        z = 430 + 6 * k
+        b = fw_rounded_box(e, "#{words['magazine']} #{k + 1}", m, [dx - 120, dy - 160, z], [dx + 120, dy + 160, z + 6], 1.5)
+        b.transform!(Geom::Transformation.rotation(fw_pt(dx, dy, 0), Z_AXIS, ang.degrees))
+      end
+    end
+
+    # One leaf component shared by every plant (made once, found again by its mark); its faces have no material: each
+    # plant gives its leaf instances the leaf material.
+    def self.fw_leaf_definition(name)
+      d = model.definitions.find { |x| x.get_attribute('su_mcp', 'leaf') }
+      return [d, nil] if d
+      len = 200.0
+      wid = 130.0
+      s = 10
+      v = []
+      f = []
+      (0..s).each do |i|
+        t = i.to_f / s
+        w = wid * (Math.sin(Math::PI * [t * 1.05, 1.0].min)**0.7) * (0.55 + 0.55 * t) / 1.1
+        z = -0.35 * len * t * t
+        v += [[t * len, -w / 2, z + 0.12 * w], [t * len, 0, z], [t * len, w / 2, z + 0.12 * w]]
+      end
+      s.times { |i| a = i * 3; f << [a, a + 3, a + 4, a + 1]; f << [a + 1, a + 4, a + 5, a + 2] }
+      # built in a group turned into a component (a fresh definitions.add can lose its entities in the operation); the
+      # temporary instance is kept until the real ones are placed
+      tmp = model.active_entities.add_group
+      fw_mesh(tmp.entities, nil, nil, v, f, true, nil).explode
+      inst = tmp.to_component
+      inst.definition.name = name
+      inst.definition.set_attribute('su_mcp', 'leaf', true)
+      inst.hidden = true
+      [inst.definition, inst]
+    end
+
+    # Ficus in a tall pot, about 2050 mm high: pot, soil, trunk, five branches and ~360 leaf instances.
+    def self.fw_plant(e, mat, words, seed, leaf_name)
+      rng = Random.new(seed)
+      fw_lathe(e, words['pot'], mat['pot'], 0, 0, [[0, 0], [190, 0], [228, 540], [236, 545], [236, 575], [222, 580], [215, 565], [0, 565]], 64)
+      fw_lathe(e, words['soil'], mat['soil'], 0, 0, [[0, 548], [215, 548], [215, 566], [0, 566]], 48)
+      fw_tube(e, words['trunk'], mat['bark'], [[0, 0, 550], [10, -10, 850], [-5, 5, 1100], [0, 0, 1250]], [24, 20, 17, 15], 12)
+      clusters = [[[0, 0, 1500], 300], [[-150, -100, 1260], 220], [[150, 90, 1300], 230], [[-30, 110, 1780], 210], [[110, -110, 1620], 180]]
+      clusters.each_with_index do |(c, _r), i|
+        base = [0, 0, c[2] < 1400 ? 1100 : 1220]
+        mid = [c[0] / 2.0, c[1] / 2.0, (base[2] + c[2]) / 2.0 + 50]
+        tip = [c[0] * 0.85, c[1] * 0.85, base[2] + (c[2] - base[2]) * 0.85]
+        fw_tube(e, "#{words['branch']} #{i + 1}", mat['bark'], [base, mid, tip], [12, 8, 4], 8)
+      end
+      ld, tmp = fw_leaf_definition(leaf_name)
+      gauss = lambda { Math.sqrt(-2 * Math.log(1 - rng.rand)) * Math.cos(2 * Math::PI * rng.rand) }
+      count = 0
+      clusters.each do |c, r|
+        (95 * r / 300.0).to_i.times do
+          d = Geom::Vector3d.new(gauss.call, gauss.call, gauss.call * 0.8)
+          next if d.length < 1e-6
+          d.normalize!
+          p = Geom::Point3d.new(c[0].mm, c[1].mm, c[2].mm).offset(d, (r * (0.55 + 0.45 * rng.rand)).mm)
+          out = d.clone
+          out.z -= 0.25
+          out.normalize!
+          ref = out.parallel?(Z_AXIS) ? X_AXIS : Z_AXIS
+          y0 = ref.cross(out).normalize
+          z0 = out.cross(y0).normalize
+          roll = rng.rand * 1.8 - 0.9
+          cr = Math.cos(roll)
+          sr = Math.sin(roll)
+          ya = Geom::Vector3d.new(y0.x * cr + z0.x * sr, y0.y * cr + z0.y * sr, y0.z * cr + z0.z * sr)
+          za = out.cross(ya)
+          leaf = e.add_instance(ld, Geom::Transformation.axes(p, out, ya, za) * Geom::Transformation.scaling(0.7 + 0.45 * rng.rand))
+          leaf.material = mat['leaf']
+          count += 1
+        end
+      end
+      tmp.erase! if tmp && tmp.valid?
+      count
+    end
+
+    def self.cmd_insert_furniture(p)
+      type = p['type'].to_s
+      raise ArgumentError, "type must be one of: #{FW_TYPES.join(', ')}" unless FW_TYPES.include?(type)
+      size = p['size'].is_a?(Hash) ? p['size'] : {}
+      dim = lambda do |k, d, lo|
+        v = size[k].nil? ? d : num(size[k], "size.#{k}")
+        raise ArgumentError, "size.#{k} must be at least #{lo} mm" if v < lo
+        v.to_f
+      end
+      lang = p['language'] == 'vi' ? 'vi' : 'en'
+      words = FW_WORDS[lang].merge(p['labels'].is_a?(Hash) ? p['labels'].reject { |_, v| v.to_s.empty? } : {})
+      given = p['materials'].is_a?(Hash) ? p['materials'] : {}
+      pos = point(p['position'] || [0, 0, 0])
+      rot = p['rotation_deg'].to_f
+      with_operation('insert_furniture') do |m|
+        old_layer = m.active_layer
+        m.active_layer = m.layers[0] # the parts stay Untagged, whatever tag is active; only the group gets the tag
+        begin
+          mats = Hash.new do |h, role|
+            name = given[role].to_s.empty? ? FW_NAMES[lang][role] : given[role].to_s
+            fresh = named(m.materials, name).nil?
+            mt = get_material(name, FW_COLORS[role])
+            mt.alpha = 0.35 if fresh && role == 'glass'
+            h[role] = mt
+          end
+          g = m.active_entities.add_group
+          e = g.entities
+          scale = [1.0, 1.0, 1.0]
+          leaves = 0
+          case type
+          when 'sofa_track_arm'
+            w = dim.call('width', 2200, 1000)
+            d = dim.call('depth', 950, 700)
+            seats = (size['seats'] || (w < 1500 ? 1 : (w < 1900 ? 2 : 3))).to_i
+            raise ArgumentError, 'size.seats must be 1 to 5' unless seats.between?(1, 5)
+            fw_sofa(e, w, d, seats, mats, words)
+            scale[2] = dim.call('height', 820, 600) / 820.0
+          when 'swivel_lounge_chair'
+            k = dim.call('width', 780, 500) / 780.0
+            scale = [k, k, dim.call('height', 830, 600) / 830.0]
+            fw_chair(e, mats, words)
+          when 'round_glass_coffee_table'
+            k = dim.call('diameter', 900, 400) / 900.0
+            scale = [k, k, dim.call('height', 430, 250) / 430.0]
+            fw_table(e, mats, words, p['decor'] == true)
+          when 'potted_tree_ficus'
+            k = dim.call('height', 2050, 800) / 2050.0
+            scale = [k, k, k]
+            leaves = fw_plant(e, mats, words, (p['seed'] || 11).to_i, words['leaf'])
+          when 'pillow'
+            w = dim.call('width', 440, 150)
+            h = dim.call('height', 420, 150)
+            t = dim.call('thickness', 150, 40)
+            v, f = fw_pillow_mesh(w, h, t)
+            fw_mesh(e, words['pillow'], mats['pillow'], v, f).transform!(Geom::Transformation.translation(fw_pt(0, 0, h / 2.0)))
+          end
+          g.transformation = Geom::Transformation.translation(pos) * Geom::Transformation.rotation(ORIGIN, Z_AXIS, rot.degrees) *
+                             Geom::Transformation.scaling(ORIGIN, scale[0], scale[1], scale[2])
+          g.name = p['name'].to_s.empty? ? (words[type] || words['pillow'].capitalize) : p['name'].to_s
+          tag = get_tag(p['tag'], p['tag_style'])
+          g.layer = tag if tag
+          r = entity_summary(g).merge('type' => type, 'parts' => e.count { |x| x.is_a?(Sketchup::Group) },
+                                      'materials' => mats.values.map { |x| utf8(x.display_name) }.uniq)
+          r['leaves'] = leaves if type == 'potted_tree_ficus'
+          r
+        ensure
+          m.active_layer = old_layer if old_layer && old_layer.valid?
+        end
+      end
     end
 
     # ------------------------------------------------------------------

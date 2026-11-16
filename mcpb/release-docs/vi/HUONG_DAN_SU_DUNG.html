@@ -122,13 +122,13 @@
 <span class="say">Ping SketchUp</span>
 <span class="say">Mô hình này có gì? Thống kê tag, vật liệu và component.</span>
 <span class="say">Chụp ảnh góc iso cho tôi xem.</span>
-<p><code>ping</code> cho biết Claude đang điều khiển <strong>mô hình nào</strong> và phiên bản plugin; nếu có dòng <code>warning</code> là plugin cũ — xem mục 8.</p>
+<p><code>ping</code> cho biết Claude đang điều khiển <strong>mô hình nào</strong> và phiên bản plugin; nếu có dòng <code>warning</code> là plugin cũ — xem mục 9.</p>
 
 <h2><span class="num">4</span>Dùng an toàn</h2>
 <ul>
   <li><strong>Lưu bản sao</strong> trước mỗi buổi làm việc với Claude.</li>
   <li>Mỗi lần Claude sửa mô hình là <strong>một bước Undo</strong> (<kbd>Ctrl</kbd>+<kbd>Z</kbd>), tên bắt đầu bằng <em>“MCP: …”</em> trong menu Edit.</li>
-  <li>Giữ chế độ <strong>hỏi xin phép</strong>. Không chọn <em>“Always allow”</em> cho: <code>run_ruby</code>, <code>delete_entities</code>, <code>undo</code>, <code>save_model</code>, <code>open_model</code>, <code>new_model</code>, <code>export_file</code>, <code>export_png</code>, <code>interior_takeoff</code>, <code>purge_unused</code>, <code>create_scenes</code> (các lệnh xuất, và lệnh bóc khối lượng khi lưu file CSV, có thể ghi đè file).</li>
+  <li>Giữ chế độ <strong>hỏi xin phép</strong>. Không chọn <em>“Always allow”</em> cho: <code>run_ruby</code>, <code>delete_entities</code>, <code>undo</code>, <code>save_model</code>, <code>open_model</code>, <code>new_model</code>, <code>export_file</code>, <code>export_png</code>, <code>export_for_render</code>, <code>interior_takeoff</code>, <code>purge_unused</code>, <code>create_scenes</code> (các lệnh xuất, và lệnh bóc khối lượng khi lưu file CSV, có thể ghi đè file).</li>
   <li><code>run_ruby</code> chạy code Ruby bất kỳ trong SketchUp. Nếu không đọc hiểu được đoạn code Claude đề xuất, hãy từ chối và yêu cầu Claude dùng các công cụ có sẵn.</li>
   <li>Claude chỉ điều khiển <strong>cửa sổ SketchUp mở đầu tiên</strong> (giữ cổng 9876). Mở thêm cửa sổ thứ hai thì cửa sổ đó không kết nối.</li>
   <li>Bóc khối lượng mô hình lớn hoặc lệnh <code>run_ruby</code> nặng có thể làm SketchUp đứng vài giây đến vài phút — hãy chờ. Nếu đứng quá lâu sau một lệnh <code>run_ruby</code> (có thể do vòng lặp vô hạn), đóng SketchUp bằng Task Manager; thay đổi chưa lưu sẽ mất.</li>
@@ -185,7 +185,15 @@
 </ul>
 <span class="say">Tạo các scene hồ sơ cho tất cả các phòng.</span>
 
-<h2><span class="num">7</span>Ví dụ câu lệnh</h2>
+<h2><span class="num">7</span>Nội thất chi tiết và render</h2>
+<h3>Nội thất chi tiết</h3>
+<p><code>insert_furniture</code> dựng một món đồ bằng lưới mềm theo kích thước bạn cho: <code>sofa_track_arm</code> (nệm ngồi, nệm tựa và 2 gối), <code>swivel_lounge_chair</code> (ghế xoay), <code>round_glass_coffee_table</code> (bàn trà kính tròn), <code>potted_tree_ficus</code> (cây ficus, khoảng 360 lá, đều là bản sao của một component lá) và <code>pillow</code> (gối). Mỗi món là một group có tag bạn đặt, nên bảng khối lượng đếm là 1 cái. Có thể chỉ định vật liệu từng phần (vải, kim loại, kính, chậu, lá…) hoặc để Claude tạo vật liệu mặc định.</p>
+<span class="say">Đặt một sofa dài 2400 mm tag FN-01 sát tường phía bắc phòng khách, phía trước là bàn trà kính tròn, góc phòng đặt một cây ficus.</span>
+<h3>Render bằng Blender</h3>
+<p><code>export_for_render</code> ghi vào một thư mục: file OBJ kèm vật liệu và texture (đơn vị mét; giữ cả vật liệu mà mặt kế thừa từ group, mô hình không bị thay đổi), <code>&lt;tên&gt;_cameras.json</code> (mỗi scene một camera), <code>&lt;tên&gt;_lights.json</code> (các đèn có tag LT) và <code>&lt;tên&gt;_blender.py</code>. Chạy <span class="path">blender -b -P "&lt;thư mục&gt;\&lt;tên&gt;_blender.py"</span> để có file .blend gồm camera, mỗi đèn một nguồn sáng mềm và thiết lập Cycles, sau đó chỉnh vật liệu, ánh sáng và render. Blender đọc được OBJ nhưng không đọc được FBX dạng ASCII mà SketchUp xuất ra.</p>
+<span class="say">Xuất mô hình để render vào D:/Render/Showroom, kèm camera của tất cả các scene.</span>
+
+<h2><span class="num">8</span>Ví dụ câu lệnh</h2>
 <div class="grid2">
   <div class="card"><h4>Đọc &amp; thống kê</h4>“Liệt kê các component và số lượng, sắp xếp giảm dần.”<br>“Đếm số cửa D1 và cửa sổ trong mô hình.”</div>
   <div class="card"><h4>Bóc khối lượng</h4>“Bóc khối lượng nội thất theo tag.” <span class="muted">(sàn và trần tính m², tường m² một mặt, len tính mét dài, đồ rời đếm cái — xem mục 5)</span><br>“Chỉ tính phần đang chọn, và lưu ra D:/BOQ/phong.csv.”</div>
@@ -198,7 +206,7 @@
 </div>
 <p class="muted">Xem thêm danh sách đầy đủ trong <span class="path">CAU_LENH_MAU.txt</span>.</p>
 
-<h2><span class="num">8</span>Xử lý lỗi thường gặp</h2>
+<h2><span class="num">9</span>Xử lý lỗi thường gặp</h2>
 <div class="tablewrap"><table>
   <tr><th>Thông báo (nguyên văn)</th><th>Nguyên nhân</th><th>Cách xử lý</th></tr>
   <tr><td><code>Cannot connect to SketchUp at 127.0.0.1:9876</code></td><td>SketchUp chưa mở, plugin chưa cài hoặc đang tắt.</td><td>Mở SketchUp; xem <span class="menu">Extensions → SU MCP Bridge → Status</span>; chưa có menu thì làm lại bước 2.</td></tr>
@@ -210,15 +218,16 @@
   <tr><td><code>run_ruby must not call exit/abort</code></td><td>Code Ruby của Claude gọi <code>exit</code>.</td><td>Thay đổi đã được hủy. Yêu cầu Claude viết lại không dùng <code>exit</code>.</td></tr>
   <tr><td>Claude không thấy công cụ SketchUp</td><td>Extension đang tắt.</td><td>Claude → <span class="menu">Settings → Extensions → SketchUp MCP</span> → bật; mở chat mới.</td></tr>
   <tr><td>Mỗi công cụ SketchUp xuất hiện 2 lần</td><td>Máy đã có cấu hình cũ <code>"sketchup"</code> (bản Python) trong <span class="path">claude_desktop_config.json</span>.</td><td>Xóa mục đó (Settings → Developer → Edit Config) rồi khởi động lại Claude.</td></tr>
+  <tr><td><code>SketchUp could not write … the file may be open or locked in another program</code></td><td>File ảnh hoặc file xuất đang mở ở chương trình khác (vd đang được chèn vào AutoCAD) hoặc chỉ đọc.</td><td>Đóng file ở đó, hoặc yêu cầu đặt tên file khác.</td></tr>
 </table></div>
 
-<h2><span class="num">9</span>Cập nhật &amp; gỡ cài đặt</h2>
+<h2><span class="num">10</span>Cập nhật &amp; gỡ cài đặt</h2>
 <ul>
   <li><strong>Cập nhật:</strong> cài file .mcpb mới đè lên (thiết lập được giữ), rồi gõ “Cài SU MCP Bridge vào SketchUp” và khởi động lại SketchUp. Luôn cập nhật <em>cả hai</em> phần, sau đó gõ “Ping SketchUp” — không có dòng <code>warning</code> là xong.</li>
   <li><strong>Gỡ:</strong> Claude → <span class="menu">Settings → Extensions → SketchUp MCP → Uninstall</span>. Trong SketchUp: Extension Manager → SU MCP Bridge → Uninstall (hoặc xóa <span class="path">su_mcp.rb</span> và thư mục <span class="path">su_mcp</span> trong <span class="path">%APPDATA%\SketchUp\SketchUp 20xx\SketchUp\Plugins</span>).</li>
 </ul>
 
-<h2><span class="num">10</span>Báo lỗi / góp ý</h2>
+<h2><span class="num">11</span>Báo lỗi / góp ý</h2>
 <p>Mở một issue trên repository GitHub của dự án (hoặc báo cho người hỗ trợ trong tổ chức của bạn), kèm:</p>
 <ol>
   <li>Kết quả lệnh “Ping SketchUp” (phiên bản SketchUp, plugin, extension).</li>

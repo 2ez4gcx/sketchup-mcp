@@ -19,12 +19,13 @@ This README is for developers.
 
 | Path | What it is |
 |---|---|
-| `src/index.mjs` | The MCP server: 34 tools, TCP client for the bridge, `install_sketchup_bridge`. |
+| `src/index.mjs` | The MCP server: 36 tools, TCP client for the bridge, `install_sketchup_bridge`. |
 | `manifest.json` | MCPB manifest (manifest_version 0.3): tool list, `user_config` (port, timeout), compatibility. |
 | `scripts/build.mjs` | `npm run build`: bundle, `.rbz`, notices, validate, pack. |
 | `scripts/versions.mjs` | Checks that the version matches in all 4 places (used by the build and the unit tests). |
 | `scripts/smoke-test.mjs` | Starts the server over stdio: `initialize` + `tools/list`; with `--live`, read-only calls to SketchUp. |
 | `scripts/unit-test.mjs` | Behaviour tests against a fake bridge; no SketchUp needed. |
+| `scripts/live-test.mjs` | Modelling, export and Blender checks against a running SketchUp, in a new empty unsaved model only; removes everything it made. |
 | `scripts/release.mjs` | Builds the release folder and zip from `dist/` and `release-docs/`. |
 | `scripts/make-icon.mjs` | Draws `icon.png` (512x512) with plain Node; the build runs it only if `icon.png` is missing. |
 | `release-docs/en/`, `release-docs/vi/` | User guides (HTML) and sample prompts (TXT), English and Vietnamese. |
@@ -35,9 +36,9 @@ This README is for developers.
 | Group | Tools |
 |---|---|
 | Read / quantities | `ping`, `model_info`, `list_tags`, `list_components`, `list_materials`, `selection_info`, `quantity_takeoff`, `interior_takeoff`, `check_model`, `check_design` |
-| Modelling | `create_box`, `create_shape`, `create_lines`, `insert_component`, `transform_entities`, `set_material`, `set_tag`, `setup_tags`, `make_group`, `create_room`, `purge_unused`, `delete_entities`, `select_entities`, `undo` |
+| Modelling | `create_box`, `create_shape`, `create_lines`, `insert_component`, `insert_furniture`, `transform_entities`, `set_material`, `set_tag`, `setup_tags`, `make_group`, `create_room`, `purge_unused`, `delete_entities`, `select_entities`, `undo` |
 | Arbitrary Ruby | `run_ruby` |
-| View / files | `set_view`, `create_scenes`, `screenshot`, `export_png`, `export_file`, `save_model`, `open_model`, `new_model` |
+| View / files | `set_view`, `create_scenes`, `screenshot`, `export_png`, `export_file`, `export_for_render`, `save_model`, `open_model`, `new_model` |
 | Setup | `install_sketchup_bridge`: install or update the bridge in the Plugins folder of every SketchUp version opened at least once. `dry_run=true` only reports what it would do; `versions=["2026"]` picks versions. |
 
 Units: lengths in mm, areas in m², volumes in m³, angles in degrees; Z is up. Every model-editing tool is one Undo step.
@@ -57,7 +58,7 @@ warnings, and writes the optional CSV.
 - **Node.js 18 or later** (CI uses Node 22) and npm.
 - `npm install` (or `npm ci`) in this folder. All dependencies are dev dependencies: esbuild bundles everything into one
   file, so the `.mcpb` contains no `node_modules`.
-- SketchUp is **not** needed to build or test. Only `smoke-test.mjs --live` talks to a real SketchUp.
+- SketchUp is **not** needed to build or test. Only `smoke-test.mjs --live` and `live-test.mjs` talk to a real SketchUp.
 - Windows is the reference platform: the `install_sketchup_bridge` unit tests use `%APPDATA%`-style paths, and the
   release script prints the PDFs with Microsoft Edge.
 
@@ -70,6 +71,7 @@ npm run build                        # bundle + .rbz + notices + mcpb validate/p
 npm test                             # smoke test + unit tests with a fake bridge (no SketchUp needed)
 npm run release                      # build + unit tests + ../release/SketchUpMCP_v<v>/ folder and .zip
 node scripts/smoke-test.mjs --live   # read-only tools against the SketchUp that is open now
+node scripts/live-test.mjs [out]    # editing tools in a NEW EMPTY UNSAVED model (it refuses any other), then cleans up
 ```
 
 ### `npm run build` (`scripts/build.mjs`)
@@ -137,6 +139,15 @@ Same as the smoke test, then calls **read-only** tools against the SketchUp that
 (640x400). It never calls a model-editing tool. It connects to `SKETCHUP_MCP_PORT` (default 9876), so SketchUp must be
 running with the bridge started (Extensions > SU MCP Bridge > Status). It still reads the open model, so use a test
 model rather than a confidential project.
+
+### `node scripts/live-test.mjs [out-dir]`
+
+Runs the editing tools for real: rooms with full-height openings, names stored in another Unicode form, `run_ruby`
+options, OBJ export with inherited textures, a locked PNG, `insert_furniture`, `export_for_render` (and Blender when it
+finds `blender.exe`: `BLENDER` or `%LOCALAPPDATA%/Programs/Blender/*`), scenes and checks. It stops without touching
+anything unless the open model is new, empty and unsaved; it installs this build's bridge and loads it without a
+restart, and at the end removes every entity, tag, folder, material, component, scene and style it made (no undo).
+Images and exported files are kept in `out-dir`.
 
 ### `npm run release` (`scripts/release.mjs`)
 

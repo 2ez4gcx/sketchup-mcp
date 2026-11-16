@@ -80,6 +80,16 @@ VẬT LIỆU & TAG
 - Chọn 1 đối tượng đang dùng vật liệu "Son tuong", rồi: đổi màu vật liệu đó sang #F4F0EB cho cả mô hình.
   (Claude dùng update_existing; vật liệu đã có KHÔNG bị đổi màu nếu bạn không yêu cầu rõ)
 
+NỘI THẤT CHI TIẾT & RENDER
+- Đặt một sofa dài 2400 mm tag FN-01 sát tường phía bắc phòng khách, quay mặt về hướng nam.
+  (các loại: sofa_track_arm, swivel_lounge_chair, round_glass_coffee_table, potted_tree_ficus, pillow; mỗi món là 1 group có tag)
+- Đặt bàn trà kính tròn 900 mm phía trước sofa, có tạp chí, và một cây ficus cao 1,8 m tag DE-01 ở góc phòng.
+- Dùng vật liệu "FN-01 Vải xám ấm" cho vải sofa và "Inox xước" cho chân.
+- Xuất mô hình để render vào D:/Render/Showroom, kèm camera của tất cả các scene.
+  (Showroom.obj đơn vị mét kèm texture, Showroom_cameras.json, Showroom_lights.json từ các tag LT và
+   Showroom_blender.py; sau đó chạy: blender -b -P "D:/Render/Showroom/Showroom_blender.py")
+- Vách kính cao hết trần: trong create_room, một ô mở type "glass" (hoặc tag GL) từ sàn lên trần.
+
 GÓC NHÌN, ẢNH & FILE
 - Chụp ảnh góc iso / góc trên / mặt trước cho tôi xem.   (góc nhìn của bạn được giữ nguyên sau khi chụp)
 - Đặt góc nhìn mặt trước, chiếu song song.

@@ -1,6 +1,6 @@
 // Unit tests that need no SketchUp: run the built server against a "fake bridge" (TCP) and check each behaviour.
 //   node scripts/unit-test.mjs [path-to-server.mjs]
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -539,6 +539,78 @@ r = await S.tool('check_model', {});
 const um = JSON.parse(r.txt).issues.find((i) => i.id === 'unused');
 check('check_model: standard codes sent; empty standard tags that purge keeps are counted apart', received.some((q) => q.cmd === 'check_model'
   && q.params.keep_codes && q.params.keep_codes.includes('FL')) && um && um.message.includes('1 of them empty standard tags'), JSON.stringify(um));
+
+// 23 (1.4.1): opening types, run_ruby options, export options, decomposed (NFD) tag names
+received.length = 0;
+await S.tool('create_room', { name: 'Lobby', points: [[0, 0], [6000, 0], [6000, 4000], [0, 4000]], height: 2800,
+  openings: [{ edge: 3, offset: 900, width: 4600, height: 2800, tag: 'GL-01 Glass wall' }, { edge: 1, width: 900, height: 2100, type: 'opening' }],
+  labels: { glass: 'Glaswand' } });
+cr = received.find((q) => q.cmd === 'create_room');
+check('create_room: opening type and GL tag forwarded (glass folder style, labels.glass)', cr && cr.params.openings[1].type === 'opening'
+  && cr.params.tag_styles['GL-01 Glass wall'] && cr.params.tag_styles['GL-01 Glass wall'].folder_code === 'GL' && cr.params.labels.glass === 'Glaswand',
+JSON.stringify(cr && cr.params));
+r = await S.tool('create_room', { name: 'x', points: [[0, 0], [3000, 0], [3000, 3000]], openings: [{ edge: 1, width: 900, height: 2100, type: 'arch' }] });
+check('create_room: unknown opening type -> validation error', r.isError, r.txt);
+const listed2 = await S.rpc('tools/list', {});
+const toolDesc = (n) => (listed2.result.tools.find((t) => t.name === n) || {}).description || '';
+check('create_room: description says edges count from 1 and the parts have their own axes', /numbered from 1: edge 1 runs from point 1 to point 2/.test(toolDesc('create_room'))
+  && /own axes/.test(toolDesc('create_room')), toolDesc('create_room'));
+received.length = 0;
+behaviours.set('run_ruby', [{ reply: { result: '1', stdout: '' } }, { reply: { deferred: true, id: 1 } }]);
+await S.tool('run_ruby', { code: '1' });
+await S.tool('run_ruby', { code: 'render', deferred: true, undo_step: false });
+const rr = received.filter((q) => q.cmd === 'run_ruby');
+check('run_ruby: undo_step true / deferred false by default; both forwarded', rr.length === 2 && rr[0].params.undo_step === true
+  && rr[0].params.deferred === false && rr[1].params.deferred === true && rr[1].params.undo_step === false, JSON.stringify(rr.map((q) => q.params)));
+received.length = 0;
+behaviours.set('export_file', [{ reply: { ok: true } }]);
+await S.tool('export_file', { path: 'D:/x/model.obj', options: { swap_yz: true, units: 'm' } });
+const ef = received.find((q) => q.cmd === 'export_file');
+check('export_file: bake_materials on by default, exporter options forwarded', ef && ef.params.bake_materials === true
+  && ef.params.options.swap_yz === true && ef.params.options.units === 'm', JSON.stringify(ef && ef.params));
+const nfdTag = 'CL-01 Tấm trần'.normalize('NFD');
+behaviours.set('measure_tags', [{ reply: { tags: [mt(nfdTag, { count: 4, plan_area_m2: 2, length_m: 9 })], untagged: [], rooms: [], hidden: [], excluded: {}, selection_only: false } }]);
+r = await S.tool('interior_takeoff', { measures: { ['CL-01 Tấm trần'.normalize('NFC')]: 'length' } });
+const nb = JSON.parse(r.txt);
+check('interior_takeoff: a measures key typed in NFC matches a tag stored decomposed (NFD)', nb.rows[0] && nb.rows[0].measured_as === 'length'
+  && !(nb.warnings || []).some((w) => /matching no tag/.test(w)), JSON.stringify([nb.rows[0], nb.warnings]));
+
+// 24 (1.5.0): insert_furniture, export_for_render
+received.length = 0;
+behaviours.set('insert_furniture', [{ reply: { id: 9, type: 'potted_tree_ficus' } }]);
+await S.tool('insert_furniture', { type: 'potted_tree_ficus', position: [500, 400, 0], size: { height: 1800 }, tag: 'DE-01 Cây ficus',
+  materials: { leaf: 'Lá xanh đậm' } });
+const fu = received.find((q) => q.cmd === 'insert_furniture');
+check('insert_furniture: type, size, materials forwarded; Vietnamese names -> vi and a DE tag style', fu && fu.params.type === 'potted_tree_ficus'
+  && fu.params.size.height === 1800 && fu.params.materials.leaf === 'Lá xanh đậm' && fu.params.language === 'vi'
+  && fu.params.tag_style && fu.params.tag_style.folder_code === 'DE' && fu.params.rotation_deg === 0 && fu.params.decor === false,
+JSON.stringify(fu && fu.params));
+r = await S.tool('insert_furniture', { type: 'sofa_track_arm', size: { length: 2000 } });
+check('insert_furniture: unknown size key -> validation error', r.isError, r.txt);
+r = await S.tool('insert_furniture', { type: 'armchair' });
+check('insert_furniture: unknown type -> validation error', r.isError, r.txt);
+const rdir = fs.mkdtempSync(path.join(os.tmpdir(), 'sumcp-render-'));
+behaviours.set('export_for_render', [{ reply: {
+  folder: rdir, name: 'Show room', obj: path.join(rdir, 'Show room.obj'), mtl: path.join(rdir, 'Show room.mtl'), units: 'm', up_axis: 'Y',
+  faces_given_inherited_material: 12, size_bytes: 100,
+  cameras: [{ name: '01 Lối vào', eye: [900, 180, 1600], target: [3800, 5200, 950], up: [0, 0, 1], fov: 72, perspective: true, height_mm: null, aspect: 1.7778, hidden_tags: [] },
+    { name: 'Plan', eye: [0, 0, 9000], target: [0, 0, 0], up: [0, 1, 0], fov: null, perspective: false, height_mm: 8000, aspect: 1.5, hidden_tags: ['CL-01'] }],
+  lights: [{ name: 'Downlight', tag: 'LT-01 Downlight', room: 'Lobby', center: [1000, 1000, 2790], plan_size: [90, 90], yaw: 0, bottom: 2785, top: 2800 }],
+  missing_scenes: ['Old'],
+} }]);
+r = await S.tool('export_for_render', { folder: rdir, scenes: ['01 Lối vào', 'Plan', 'Old'] });
+const exr = JSON.parse(r.txt);
+const camsFile = JSON.parse(fs.readFileSync(path.join(rdir, 'Show room_cameras.json'), 'utf8'));
+const lightsFile = JSON.parse(fs.readFileSync(path.join(rdir, 'Show room_lights.json'), 'utf8'));
+const py = fs.readFileSync(path.join(rdir, 'Show room_blender.py'), 'utf8');
+check('export_for_render: <name>_cameras.json and <name>_lights.json written; script points at the OBJ and the .blend', !r.isError && camsFile.length === 2
+  && camsFile[0].name === '01 Lối vào' && lightsFile[0].tag === 'LT-01 Downlight' && py.includes(JSON.stringify(path.join(rdir, 'Show room.obj')))
+  && py.includes(JSON.stringify(path.join(rdir, 'Show room.blend'))) && exr.run.includes('Show room_blender.py') && exr.missing_scenes[0] === 'Old', r.txt);
+const pyc = spawnSync('python', ['-c', 'import ast,sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())', path.join(rdir, 'Show room_blender.py')], { encoding: 'utf8' });
+check('export_for_render: the Blender script is valid Python (skipped when python is missing)', pyc.error ? true : pyc.status === 0, pyc.stderr || String(pyc.error));
+fs.rmSync(rdir, { recursive: true, force: true });
+r = await S.tool('export_for_render', { folder: 'render/out' });
+check('export_for_render: a relative folder is refused (SketchUp and the server would not agree on it)', r.isError, r.txt);
 
 // 9: bridge install tool on a temporary APPDATA
 const inst = async (args) => JSON.parse((await S.tool('install_sketchup_bridge', args)).txt);

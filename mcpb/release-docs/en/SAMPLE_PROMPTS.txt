@@ -80,6 +80,16 @@ MATERIALS & TAGS
 - Select one object that uses the material "Wall paint", then: change the color of that material to #F4F0EB for the whole model.
   (Claude uses update_existing; an existing material is NOT recolored unless you ask for it clearly)
 
+FURNITURE & RENDERING
+- Insert a 2400 mm sofa tagged FN-01 against the north wall of the living room, facing south.
+  (types: sofa_track_arm, swivel_lounge_chair, round_glass_coffee_table, potted_tree_ficus, pillow; one tagged group each)
+- Put a round glass coffee table (900 mm) in front of it with magazines, and a 1.8 m ficus tagged DE-01 in the corner.
+- Use the material "FN-01 Fabric warm grey" for the sofa fabric and "Brushed steel" for the legs.
+- Export the model for rendering to D:/Render/Showroom with the cameras of all scenes.
+  (Showroom.obj in metres with textures, Showroom_cameras.json, Showroom_lights.json from the LT tags and
+   Showroom_blender.py; then run: blender -b -P "D:/Render/Showroom/Showroom_blender.py")
+- A full-height glass wall: in create_room, an opening with type "glass" (or a GL tag) from the floor to the ceiling.
+
 VIEWS, IMAGES & FILES
 - Take an iso / top / front screenshot so I can see it.   (your own view is restored after the capture)
 - Set the front view with parallel projection.

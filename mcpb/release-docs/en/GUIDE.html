@@ -122,13 +122,13 @@
 <span class="say">Ping SketchUp</span>
 <span class="say">What is in this model? Summarize the tags, materials and components.</span>
 <span class="say">Take an iso screenshot so I can see it.</span>
-<p><code>ping</code> tells you <strong>which model</strong> Claude is controlling and the plugin version; if there is a <code>warning</code> line, the plugin is outdated – see section 8.</p>
+<p><code>ping</code> tells you <strong>which model</strong> Claude is controlling and the plugin version; if there is a <code>warning</code> line, the plugin is outdated – see section 9.</p>
 
 <h2><span class="num">4</span>Working safely</h2>
 <ul>
   <li><strong>Save a copy</strong> before every working session with Claude.</li>
   <li>Every change Claude makes to the model is <strong>one Undo step</strong> (<kbd>Ctrl</kbd>+<kbd>Z</kbd>), named <em>“MCP: …”</em> in the Edit menu.</li>
-  <li>Keep Claude in <strong>ask-for-permission</strong> mode. Do not choose <em>“Always allow”</em> for: <code>run_ruby</code>, <code>delete_entities</code>, <code>undo</code>, <code>save_model</code>, <code>open_model</code>, <code>new_model</code>, <code>export_file</code>, <code>export_png</code>, <code>interior_takeoff</code>, <code>purge_unused</code>, <code>create_scenes</code> (the export commands, and the takeoff when it saves a CSV file, can overwrite files).</li>
+  <li>Keep Claude in <strong>ask-for-permission</strong> mode. Do not choose <em>“Always allow”</em> for: <code>run_ruby</code>, <code>delete_entities</code>, <code>undo</code>, <code>save_model</code>, <code>open_model</code>, <code>new_model</code>, <code>export_file</code>, <code>export_png</code>, <code>export_for_render</code>, <code>interior_takeoff</code>, <code>purge_unused</code>, <code>create_scenes</code> (the export commands, and the takeoff when it saves a CSV file, can overwrite files).</li>
   <li><code>run_ruby</code> runs any Ruby code inside SketchUp. If you cannot read and understand the code Claude proposes, deny it and ask Claude to use the built-in tools instead.</li>
   <li>Claude only controls the <strong>first SketchUp window you open</strong> (the one holding port 9876). A second window you open is not connected.</li>
   <li>A takeoff on a large model or a heavy <code>run_ruby</code> command can freeze SketchUp for seconds to minutes – please wait. If it stays frozen for too long after a <code>run_ruby</code> command (possibly an infinite loop), close SketchUp with Task Manager; unsaved changes will be lost.</li>
@@ -185,7 +185,15 @@
 </ul>
 <span class="say">Make the documentation scenes for all rooms.</span>
 
-<h2><span class="num">7</span>Example prompts</h2>
+<h2><span class="num">7</span>Furniture and rendering</h2>
+<h3>Detailed furniture</h3>
+<p><code>insert_furniture</code> builds a piece from smooth meshes to the size you give: <code>sofa_track_arm</code> (seat and back cushions, two scatter pillows), <code>swivel_lounge_chair</code>, <code>round_glass_coffee_table</code>, <code>potted_tree_ficus</code> (about 360 leaves, all copies of one leaf component) and <code>pillow</code>. Each piece is one group with the tag you give, so the bill of quantities counts it as one item. Give the material of each part (fabric, metal, glass, pot, leaf…) or let Claude create default ones.</p>
+<span class="say">Insert a 2400 mm sofa tagged FN-01 against the north wall of the living room, with a round glass coffee table in front of it and a ficus in the corner.</span>
+<h3>Rendering in Blender</h3>
+<p><code>export_for_render</code> writes into a folder an OBJ with its materials and textures (in metres; the materials that faces inherit from their group are kept, the model itself is not changed), <code>&lt;name&gt;_cameras.json</code> (one camera per scene), <code>&lt;name&gt;_lights.json</code> (the light fittings tagged LT) and <code>&lt;name&gt;_blender.py</code>. Run <span class="path">blender -b -P "&lt;folder&gt;\&lt;name&gt;_blender.py"</span> to get a .blend with the cameras, a soft light under each fitting and Cycles settings, then adjust the materials and lights and render. Blender reads OBJ but not the ASCII FBX that SketchUp writes.</p>
+<span class="say">Export the model for rendering to D:/Render/Showroom with the cameras of all scenes.</span>
+
+<h2><span class="num">8</span>Example prompts</h2>
 <div class="grid2">
   <div class="card"><h4>Read &amp; summarize</h4>“List the components and their counts, sorted from most to least.”<br>“Count the D1 doors and the windows in the model.”</div>
   <div class="card"><h4>Quantity takeoff</h4>“Make an interior bill of quantities by tag.” <span class="muted">(floors and ceilings in m², walls in m² of one side, skirting in m, items by count – see section 5)</span><br>“Only the current selection, and save it to D:/BOQ/room.csv.”</div>
@@ -198,7 +206,7 @@
 </div>
 <p class="muted">See the full list in <span class="path">SAMPLE_PROMPTS_EN.txt</span>.</p>
 
-<h2><span class="num">8</span>Troubleshooting</h2>
+<h2><span class="num">9</span>Troubleshooting</h2>
 <div class="tablewrap"><table>
   <tr><th>Message (verbatim)</th><th>Cause</th><th>What to do</th></tr>
   <tr><td><code>Cannot connect to SketchUp at 127.0.0.1:9876</code></td><td>SketchUp is not open, or the plugin is not installed or is stopped.</td><td>Open SketchUp; check <span class="menu">Extensions → SU MCP Bridge → Status</span>; if that menu is missing, repeat step 2.</td></tr>
@@ -210,15 +218,16 @@
   <tr><td><code>run_ruby must not call exit/abort</code></td><td>Claude's Ruby code called <code>exit</code>.</td><td>The changes were rolled back. Ask Claude to rewrite the code without <code>exit</code>.</td></tr>
   <tr><td>Claude does not see the SketchUp tools</td><td>The extension is disabled.</td><td>Claude → <span class="menu">Settings → Extensions → SketchUp MCP</span> → enable it; start a new chat.</td></tr>
   <tr><td>Every SketchUp tool appears twice</td><td>Another SketchUp MCP server (for example an older <code>"sketchup"</code> Python setup) is still configured in <span class="path">claude_desktop_config.json</span>.</td><td>Remove that entry (Settings → Developer → Edit Config), then restart Claude.</td></tr>
+  <tr><td><code>SketchUp could not write … the file may be open or locked in another program</code></td><td>The image or export file is open elsewhere (for example attached in AutoCAD) or read-only.</td><td>Close it there, or ask for another file name.</td></tr>
 </table></div>
 
-<h2><span class="num">9</span>Update &amp; uninstall</h2>
+<h2><span class="num">10</span>Update &amp; uninstall</h2>
 <ul>
   <li><strong>Update:</strong> install the new .mcpb file over the old one (your settings are kept), then type “Install SU MCP Bridge in SketchUp” and restart SketchUp. Always update <em>both</em> parts, then type “Ping SketchUp” – if there is no <code>warning</code> line, you are done.</li>
   <li><strong>Uninstall:</strong> Claude → <span class="menu">Settings → Extensions → SketchUp MCP → Uninstall</span>. In SketchUp: Extension Manager → SU MCP Bridge → Uninstall (or delete <span class="path">su_mcp.rb</span> and the <span class="path">su_mcp</span> folder in <span class="path">%APPDATA%\SketchUp\SketchUp 20xx\SketchUp\Plugins</span>).</li>
 </ul>
 
-<h2><span class="num">10</span>Report a problem / feedback</h2>
+<h2><span class="num">11</span>Report a problem / feedback</h2>
 <p>Open an issue on the project GitHub repository and include:</p>
 <ol>
   <li>The result of “Ping SketchUp” (SketchUp, plugin and extension versions).</li>

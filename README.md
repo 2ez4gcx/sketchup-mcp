@@ -6,17 +6,17 @@
 
 SketchUp MCP lets Claude work directly in the SketchUp model you have open. Ask in plain language, in any language, and Claude reads the model, runs quantity takeoffs by tag or material, models geometry, assigns materials and tags, takes screenshots to check its own work, and exports images and files. It ships as a Claude Desktop extension (`.mcpb`) that runs on the Node.js built into Claude Desktop, plus a small Ruby extension for SketchUp (the **SU MCP Bridge**). You do not need to install Python or Node.js.
 
-Current version: **1.4.0** - [download it from Releases](https://github.com/2ez4gcx/sketchup-mcp/releases/latest). Also listed in the official [MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.2ez4gcx/sketchup-mcp) as `io.github.2ez4gcx/sketchup-mcp`.
+Current version: **1.5.0** - [download it from Releases](https://github.com/2ez4gcx/sketchup-mcp/releases/latest). Also listed in the official [MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.2ez4gcx/sketchup-mcp) as `io.github.2ez4gcx/sketchup-mcp`.
 
 ## Features
 
-34 tools, all working in millimetres (areas in m², volumes in m³, angles in degrees, Z up):
+36 tools, all working in millimetres (areas in m², volumes in m³, angles in degrees, Z up):
 
 | Group | Tools |
 |---|---|
 | Read & statistics | `ping`, `model_info`, `list_tags`, `list_components`, `list_materials`, `selection_info`, `quantity_takeoff`, `interior_takeoff`, `check_model`, `check_design` |
-| Modelling & editing | `create_box`, `create_shape` (polygon + pushpull), `create_lines`, `insert_component`, `transform_entities`, `set_material`, `set_tag`, `setup_tags`, `make_group`, `create_room`, `purge_unused`, `delete_entities`, `select_entities`, `undo` |
-| Views, images & files | `set_view`, `create_scenes`, `screenshot`, `export_png`, `export_file`, `save_model`, `open_model`, `new_model` |
+| Modelling & editing | `create_box`, `create_shape` (polygon + pushpull), `create_lines`, `insert_component`, `insert_furniture`, `transform_entities`, `set_material`, `set_tag`, `setup_tags`, `make_group`, `create_room`, `purge_unused`, `delete_entities`, `select_entities`, `undo` |
+| Views, images & files | `set_view`, `create_scenes`, `screenshot`, `export_png`, `export_file`, `export_for_render`, `save_model`, `open_model`, `new_model` |
 | Ruby scripting | `run_ruby` |
 | Setup | `install_sketchup_bridge` |
 
@@ -28,6 +28,8 @@ Highlights:
 - **Rooms in one step** (`create_room`): give the outline of a room (the bare inner face of its walls), its height and its finishes, and Claude builds the floor finish, one wall-finish panel per wall with the doors and windows cut through, the ceiling board, the skirting (interrupted at doors) and the door leaves and glass panes, each tagged and named, inside a room group. Every wall panel follows its wall, so angled rooms are measured and checked correctly. A feature wall can take another finish, and an open side can be left without a wall.
 - **Model health check** (`check_model`, `purge_unused`): geometry outside groups or without a tag, raw faces carrying tags, inside-out solids and faces turned different ways, stacked duplicate copies (they double quantities), loose and tiny edges, unused components/materials/tags, heavy textures and components, hidden objects, tags without a standard code. `purge_unused` cleans up, keeping the empty standard tags made with `setup_tags`.
 - **Documentation scenes** (`create_scenes`): furniture plan, reflected ceiling plan (same orientation as the plan, with walls and openings for reference), floor finish plan, four elevations and an eye-level view per room, and plans per level when rooms are grouped into levels. The section planes sit on a hidden tag of their own (they still cut) and the ceiling plan gets a style of its own with your display settings and X-ray. Re-running replaces the scenes it made for the same kinds and rooms; your own scenes, view, style and tags are left as they were. Scene names can be in any language.
+- **Detailed furniture** (`insert_furniture`): a track-arm sofa with cushions and pillows, a swivel lounge chair, a round glass coffee table, a ficus in a pot and scatter pillows, built from smooth meshes to the size you give, each one tagged item.
+- **Export for rendering** (`export_for_render`): an OBJ with its textures (materials that faces inherit from their group are kept), the cameras of your scenes and the light fittings (tag LT) as JSON, and a script that builds the scene in Blender with Cycles.
 - **Design checks** (`check_design`): clear ceiling height per room and under bulkheads, overall door size, furniture clashing with walls, tight passages, furniture in a door swing zone (sliding doors skipped) and the kitchen work triangle. The limits are common reference values, not a building-code check: set them to your project's rules.
 - **Quantity takeoff by tag or material**: walks the whole model (or only the selection) and totals face area, face count, edge length, solid volume and component instance counts. Untagged or unpainted entities inherit the tag or material of their parent group.
 - **Screenshot that restores your view**: Claude sees the viewport image directly. When it asks for a specific view (iso, top, front...), the camera changes only for the capture, and your own view comes back afterwards.
@@ -50,7 +52,7 @@ This demo pavilion was built entirely through the MCP tools (`create_box`, `crea
 Claude Desktop
     |  MCP over stdio
     v
-sketchup-mcp-1.4.0.mcpb        Node.js MCP server, runs on the Node built into Claude Desktop
+sketchup-mcp-1.5.0.mcpb        Node.js MCP server, runs on the Node built into Claude Desktop
     |  one JSON request per command, TCP 127.0.0.1:9876 (localhost only)
     v
 SU MCP Bridge                  Ruby extension inside SketchUp, starts with SketchUp
@@ -72,19 +74,19 @@ Get the files from the [latest release](https://github.com/2ez4gcx/sketchup-mcp/
 
 | File | What it is |
 |---|---|
-| `sketchup-mcp-1.4.0.mcpb` | Claude Desktop extension (the main download) |
-| `su_mcp-1.4.0.rbz` | SketchUp plugin (SU MCP Bridge), only needed for a manual install |
-| `SketchUpMCP_v1.4.0.zip` | Everything: extension, plugin, user guides (HTML + PDF, English and Vietnamese), sample prompts, changelog, license |
-| `SketchUp-MCP-Guide-1.4.0.pdf` | The English user guide on its own |
+| `sketchup-mcp-1.5.0.mcpb` | Claude Desktop extension (the main download) |
+| `su_mcp-1.5.0.rbz` | SketchUp plugin (SU MCP Bridge), only needed for a manual install |
+| `SketchUpMCP_v1.5.0.zip` | Everything: extension, plugin, user guides (HTML + PDF, English and Vietnamese), sample prompts, changelog, license |
+| `SketchUp-MCP-Guide-1.5.0.pdf` | The English user guide on its own |
 
 ## Install
 
-1. **Install the extension in Claude Desktop.** Open *Settings > Extensions*, then drag and drop `sketchup-mcp-1.4.0.mcpb` into the window, or click *Advanced settings > Install Extension...* and pick the file. Click *Install*. The build is not code-signed, so Claude Desktop may warn that the extension is unsigned: only install a file from this project's [releases](https://github.com/2ez4gcx/sketchup-mcp/releases/latest) or one you built yourself. On the Microsoft Store version of Claude, double-clicking a `.mcpb` file does not open it, so install it through Settings.
+1. **Install the extension in Claude Desktop.** Open *Settings > Extensions*, then drag and drop `sketchup-mcp-1.5.0.mcpb` into the window, or click *Advanced settings > Install Extension...* and pick the file. Click *Install*. The build is not code-signed, so Claude Desktop may warn that the extension is unsigned: only install a file from this project's [releases](https://github.com/2ez4gcx/sketchup-mcp/releases/latest) or one you built yourself. On the Microsoft Store version of Claude, double-clicking a `.mcpb` file does not open it, so install it through Settings.
 2. **Install the SU MCP Bridge in SketchUp.** In a new chat, ask Claude:
    > Install SU MCP Bridge in SketchUp
 
    Claude calls `install_sketchup_bridge` (click *Allow*) and lists the SketchUp versions it updated. Or install it manually: *Extensions > Extension Manager > Install Extension* (SketchUp 2017-2020: *Window > Extension Manager*), then pick `su_mcp.rbz`. The plugin is not digitally signed. If SketchUp refuses to load it, set the Extension Loading Policy (gear icon in Extension Manager) to *Approve Unidentified Extensions*, if your IT policy allows it.
-3. **Fully quit SketchUp and reopen it.** Then check *Extensions > SU MCP Bridge > Status*. It should show `SU MCP Bridge v1.4.0: RUNNING on 127.0.0.1:9876`. Finally, ask Claude "Ping SketchUp".
+3. **Fully quit SketchUp and reopen it.** Then check *Extensions > SU MCP Bridge > Status*. It should show `SU MCP Bridge v1.5.0: RUNNING on 127.0.0.1:9876`. Finally, ask Claude "Ping SketchUp".
 
 Options are under *Settings > Extensions > SketchUp MCP > Configure*: the bridge port (default 9876) and the timeout per command (default 120 s; raise it for takeoffs on large models). If you change the port, change it in SketchUp too (*Extensions > SU MCP Bridge > Change port...*) and restart SketchUp.
 
@@ -103,7 +105,7 @@ the file to `.zip` and use *Extract All*:
 
 ```bat
 mkdir C:\Tools\sketchup-mcp
-tar -xf sketchup-mcp-1.4.0.mcpb -C C:\Tools\sketchup-mcp
+tar -xf sketchup-mcp-1.5.0.mcpb -C C:\Tools\sketchup-mcp
 ```
 
 The server is then `C:/Tools/sketchup-mcp/server/index.mjs` (use forward slashes in configs). The folder also contains
@@ -242,7 +244,7 @@ Use the ChatGPT desktop app (Codex mode) instead.
 ## Safety notes
 
 - **Localhost only.** The bridge listens on `127.0.0.1`, so other machines on the network cannot connect. The socket has no authentication, though: any program running on the same computer can send commands while the bridge is running. To turn it off for the current session, use *Extensions > SU MCP Bridge > Stop server* (it starts again with SketchUp).
-- **Keep approvals on.** Claude Desktop asks before each tool call. Do not choose "Always allow" for `run_ruby`, `delete_entities`, `undo`, `save_model`, `open_model`, `new_model`, `export_file`, `export_png`, `interior_takeoff`, `purge_unused` or `create_scenes` (the export tools, and the takeoff when it saves a CSV, can overwrite files).
+- **Keep approvals on.** Claude Desktop asks before each tool call. Do not choose "Always allow" for `run_ruby`, `delete_entities`, `undo`, `save_model`, `open_model`, `new_model`, `export_file`, `export_png`, `export_for_render`, `interior_takeoff`, `purge_unused` or `create_scenes` (the export tools, and the takeoff when it saves a CSV, can overwrite files).
 - **`run_ruby` executes arbitrary Ruby** inside SketchUp, with your user's permissions and no time limit. Read the code before you allow it. An infinite loop freezes SketchUp, and you would have to close it from Task Manager and lose unsaved changes.
 - **Every edit is one Undo step**, so a wrong result can be taken back with <kbd>Ctrl</kbd>+<kbd>Z</kbd> or by asking Claude to undo.
 - **Work on copies of your projects**, and save a copy before each session with Claude. `save_model` without a path overwrites the current file.
@@ -255,7 +257,7 @@ Use the ChatGPT desktop app (Codex mode) instead.
 | `Cannot connect to SketchUp at 127.0.0.1:9876. Open SketchUp and check Extensions > SU MCP Bridge > Status ...` | SketchUp is not open, or the bridge is not installed or is stopped. | Open SketchUp and check *Status*. If the *SU MCP Bridge* menu is missing, repeat install step 2. If Status shows `STOPPED`, click *Start server*. |
 | `SketchUp did not respond within 120s (command '...'). ... MAY HAVE ALREADY RUN` | A model-editing command took longer than the timeout. It may have finished. | Do not repeat it right away. Check the model, and if something was duplicated, undo it (after `save_model`, `open_model`, `new_model`, `export_*` or `undo` itself, check the file or model instead of using undo). Raise the timeout in *Configure* (other clients: `SKETCHUP_MCP_TIMEOUT`). |
 | `SketchUp did not respond within 120s (command '...'). This command does not modify the model and can be retried` | A read command (for example a takeoff on a large model) is still running. | Raise the timeout first (*Configure*, or `SKETCHUP_MCP_TIMEOUT` in other clients), wait until SketchUp is no longer busy, then ask again. |
-| `Unsupported command: ...`, or `ping` returns `warning: The bridge in SketchUp ... is v..., older than the bundled v1.4.0` | The bridge in SketchUp is older than the Claude extension. | Run `install_sketchup_bridge` again, then fully quit and reopen SketchUp. |
+| `Unsupported command: ...`, or `ping` returns `warning: The bridge in SketchUp ... is v..., older than the bundled v1.5.0` | The bridge in SketchUp is older than the Claude extension. | Run `install_sketchup_bridge` again, then fully quit and reopen SketchUp. |
 | `Port 9876 is used by another SketchUp window (or another program).` | Two SketchUp windows are open. Claude controls the first one. | Close the other window, then click *Extensions > SU MCP Bridge > Start server*. |
 | `Windows does not allow port 9876 ...` | The port is in a range reserved by Windows/Hyper-V. | Use *Extensions > SU MCP Bridge > Change port...*, restart SketchUp, then set the same port in *Configure* (other clients: `SKETCHUP_MCP_PORT`). |
 | `run_ruby must not call exit/abort (SystemExit) - changes were rolled back` | The Ruby snippet called `exit` or `abort`. | Nothing was changed. Ask Claude to rewrite the code without `exit`. |
@@ -279,6 +281,7 @@ npm run release   # build + unit tests + ../release/SketchUpMCP_v<version>/ and 
 - The Ruby bridge keeps Ruby 2.2 syntax so it runs on SketchUp 2017 and later (no `&.`, `Array#sum`, `match?`...).
 - Do not change `name` (`sketchup-mcp`) or `author.name` in `manifest.json`: Claude Desktop uses them as the install ID, so changing either one makes a new release install as a second extension instead of an update.
 - `node scripts/smoke-test.mjs --live` calls the read-only tools against a running SketchUp. Use it only with a model you can safely work on.
+- `node scripts/live-test.mjs` runs the editing tools in a new, empty, unsaved model (it refuses any other) and removes everything it made.
 
 ## Repository layout
 
@@ -289,7 +292,7 @@ extension/                   Ruby bridge (SU MCP Bridge)
 mcpb/                        Node.js MCP server packaged as a Claude Desktop extension
   src/index.mjs              MCP tools, connection to the bridge, install_sketchup_bridge
   manifest.json              .mcpb manifest (tools, user settings: port, timeout)
-  scripts/                   build.mjs, unit-test.mjs, smoke-test.mjs, release.mjs, versions.mjs, make-icon.mjs
+  scripts/                   build.mjs, unit-test.mjs, live-test.mjs, smoke-test.mjs, release.mjs, versions.mjs, make-icon.mjs
   release-docs/en/           GUIDE.html, SAMPLE_PROMPTS.txt (English)
   release-docs/vi/           HUONG_DAN_SU_DUNG.html, CAU_LENH_MAU.txt (Vietnamese)
 docs/images/                 README images (hero, demo GIF, social preview)

@@ -66,11 +66,11 @@ function compareVersions(a, b) {
 // the bill of quantities. measure = unit interior_takeoff uses for the category; color = category color for
 // Tags panel > Color by tag (each number gets a lighter/darker shade); en/vi = category folder name (SketchUp 2021+).
 const TAG_STANDARD = {
-  FL: { en: 'Floor finishes', vi: 'Sàn', measure: 'plan_area', color: '#b5835a' },
+  FL: { en: 'Floor finishes', vi: 'Sàn', measure: 'plan_area', facing: 'up', color: '#b5835a' },
   SK: { en: 'Skirting', vi: 'Len chân tường', measure: 'length', color: '#7a5230' },
-  WL: { en: 'Wall finishes', vi: 'Tường hoàn thiện', measure: 'wall_area', color: '#d9c39a' },
+  WL: { en: 'Wall finishes', vi: 'Tường hoàn thiện', measure: 'wall_area', reveals: true, color: '#d9c39a' },
   PA: { en: 'Partitions', vi: 'Vách ngăn', measure: 'wall_area', color: '#a6a6a6' },
-  CL: { en: 'Ceilings', vi: 'Trần', measure: 'plan_area', color: '#9cc3e6' },
+  CL: { en: 'Ceilings', vi: 'Trần', measure: 'plan_area', facing: 'down', color: '#9cc3e6' },
   CO: { en: 'Cornices and trims', vi: 'Phào chỉ', measure: 'length', color: '#5b8fc7' },
   DR: { en: 'Doors', vi: 'Cửa đi', measure: 'count', color: '#8e5ea2' },
   WN: { en: 'Windows', vi: 'Cửa sổ', measure: 'count', color: '#4f86c6' },
@@ -400,24 +400,32 @@ const MEASURE_UNIT = {
 const AREA_MEASURES = new Set(['plan_area', 'wall_area', 'sheet_area', 'side_area']);
 const CSV_TEXT = {
   en: {
-    head: ['Code', 'Tag', 'Category', 'Quantity', 'Unit', 'Measured as', 'Count', 'Floor/ceiling area (m²)', 'Wall area, one side (m²)',
-      'Sheet area, one side (m²)', 'Vertical faces (m²)', 'Length (m)', 'Width x height (m²)', 'Volume (m³)', 'Items', 'Warnings'],
+    head: ['Code', 'Tag', 'Category', 'Quantity', 'Unit', 'Measured as', 'Workings', 'Count', 'Floor/ceiling area (m²)',
+      'Wall area, one side (m²)', 'Sheet area, one side (m²)', 'Vertical faces (m²)', 'Length (m)', 'Width x height (m²)', 'Volume (m³)',
+      'Gross (m²)', 'Deducted (m²)', 'Openings', 'Not deducted (m²)', 'Vertical parts / reveals (m²)', 'Items', 'Warnings'],
     unit: { m2: 'm²', m: 'm', pcs: 'pcs', m3: 'm³' },
     total: 'Total', no_room: '(no room)',
     measure: { plan_area: 'floor/ceiling area', wall_area: 'wall area, one side', sheet_area: 'one side', side_area: 'vertical faces',
       length: 'length', elevation_area: 'width x height', count: 'count', volume: 'volume' },
+    work: { gross: 'gross', openings: 'openings', kept: 'small openings not deducted', vertical: 'vertical parts', reveals: 'returns and reveals' },
+    software: (v) => `Quantities measured by software from the 3D model (SketchUp MCP ${v}): check them against the drawings.`,
   },
   vi: {
-    head: ['Mã', 'Tag', 'Hạng mục', 'Khối lượng', 'Đơn vị', 'Cách đo', 'Số lượng', 'Diện tích sàn/trần (m²)', 'Diện tích tường, một mặt (m²)',
-      'Diện tích tấm, một mặt (m²)', 'Tổng mặt đứng (m²)', 'Chiều dài (m)', 'Rộng x cao (m²)', 'Thể tích (m³)', 'Chi tiết', 'Cảnh báo'],
+    head: ['Mã', 'Tag', 'Hạng mục', 'Khối lượng', 'Đơn vị', 'Cách đo', 'Diễn giải', 'Số lượng', 'Diện tích sàn/trần (m²)',
+      'Diện tích tường, một mặt (m²)', 'Diện tích tấm, một mặt (m²)', 'Tổng mặt đứng (m²)', 'Chiều dài (m)', 'Rộng x cao (m²)', 'Thể tích (m³)',
+      'Tổng trước khi trừ (m²)', 'Đã trừ (m²)', 'Số ô mở', 'Không trừ (m²)', 'Mặt đứng / má cửa (m²)', 'Chi tiết', 'Cảnh báo'],
     unit: { m2: 'm²', m: 'md', pcs: 'cái', m3: 'm³' },
     total: 'Tổng', no_room: '(chưa có phòng)',
     measure: { plan_area: 'diện tích sàn/trần', wall_area: 'diện tích tường một mặt', sheet_area: 'diện tích một mặt',
       side_area: 'tổng mặt đứng', length: 'chiều dài', elevation_area: 'rộng x cao', count: 'đếm', volume: 'thể tích' },
+    work: { gross: 'tổng', openings: 'ô mở', kept: 'ô mở nhỏ không trừ', vertical: 'mặt đứng', reveals: 'má cửa, cạnh quay' },
+    software: (v) => `Khối lượng đo bằng phần mềm từ mô hình 3D (SketchUp MCP ${v}): cần đối chiếu với bản vẽ.`,
   },
 };
 const round = (v, d) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 10 ** d) / 10 ** d : v);
 const BOM = String.fromCharCode(0xfeff); // UTF-8 byte order mark: makes Excel read the CSV as UTF-8
+// Measuring rules as data. vn: Vietnamese practice for finishes (openings under 0.25 m² are not deducted, three decimals).
+const RULE_SETS = { vn: { min_deduction_m2: 0.25, decimals: 3 } };
 
 /** Unit overrides normalized: keys are tag names (as given) or codes ("lt-5" -> "LT-05", "lt" -> "LT").
  *  A short key that is the exact name of a tag in the model (e.g. a tag named "TV") stays a tag name. */
@@ -448,21 +456,83 @@ function boqMeasure(tag, over) {
   return (code && TAG_STANDARD[code] && TAG_STANDARD[code].measure) || null;
 }
 
-/** Quantity of a bridge measurement row in a unit (rounded like a BOQ: 2 decimals, m³ 3, count as is). */
-function boqQuantity(t, measure) {
-  const raw = measure ? t[MEASURE_FIELD[measure]] : null;
-  return raw == null ? null : measure === 'count' ? raw : round(raw, measure === 'volume' ? 3 : 2);
+/** How an area is built from a bridge row (a tag, or a tag in one room): the main surface; what real surfaces add
+ *  (floors: risers and platform fronts; ceilings: the drops of stepped ceilings and exposed fascias; both: upright
+ *  boards on the tag; wall finishes: returns, reveals, heads and sills); the openings found in the pieces and the
+ *  small ones that stay in the quantity. o = {real, minDed}. An older bridge gives only the main surface. */
+function areaParts(t, measure, cat, o) {
+  const f = (k) => (typeof t[k] === 'number' ? t[k] : 0);
+  let main;
+  let extra = 0;
+  let kind = null;
+  let which = null;
+  let notIncluded = 0;
+  if (measure === 'plan_area') {
+    which = 'plan';
+    if (o.real && cat && cat.facing && typeof t.up_area_m2 === 'number') {
+      const up = cat.facing === 'up';
+      main = f(up ? 'up_area_m2' : 'down_area_m2');
+      extra = f(up ? 'rise_up_m2' : 'rise_down_m2') + f('sides_low_m2') + (up ? 0 : f('sides_tall_m2')) + f('wall_area_m2');
+      notIncluded = up ? f('sides_tall_m2') : 0;
+      kind = 'vertical';
+    } else {
+      main = f('plan_area_m2');
+    }
+  } else if (measure === 'wall_area') {
+    which = 'wall';
+    main = f('wall_area_m2');
+    if (o.real && cat && cat.reveals && typeof t.reveal_m2 === 'number') {
+      extra = f('reveal_m2') + Math.max(0, f('sheet_area_m2') - f('wall_area_m2'));
+      kind = 'reveals';
+    }
+  } else if (measure === 'sheet_area') {
+    which = 'sheet';
+    main = f('sheet_area_m2');
+  } else {
+    main = f('side_area_m2');
+  }
+  const op = (which && t.openings && t.openings[which]) || { n: 0, area_m2: 0, small_n: 0, small_area_m2: 0 };
+  const kept = o.minDed > 0 ? op.small_area_m2 : 0;
+  return {
+    main, extra, kind, notIncluded, gross: main + op.area_m2, deducted: op.area_m2 - kept, openings: op.n,
+    kept, keptN: o.minDed > 0 ? op.small_n : 0, quantity: main + kept + extra,
+  };
 }
 
-/** One BOQ row from the bridge's per-tag measurements; overrides = {tag | "LT-05" | "LT": measure}. */
-function boqRow(t, overrides, lang) {
+/** Unrounded quantity of a bridge row in a unit. */
+function rawQuantity(t, measure, cat, o) {
+  if (!measure) return null;
+  if (AREA_MEASURES.has(measure)) return areaParts(t, measure, cat, o).quantity;
+  const v = t[MEASURE_FIELD[measure]];
+  return typeof v === 'number' ? v : null;
+}
+
+/** Parts rounded so that they add up to the rounded total (largest remainder), in the order given. */
+function roundSplit(parts, total, d) {
+  const k = 10 ** d;
+  const list = Object.entries(parts).map(([key, v]) => ({ key, v: v * k, n: Math.floor(v * k + 1e-9) }));
+  let rest = Math.round(total * k) - list.reduce((s, e) => s + e.n, 0);
+  for (const e of [...list].sort((a, b) => (b.v - b.n) - (a.v - a.n))) {
+    if (rest <= 0) break;
+    e.n += 1;
+    rest -= 1;
+  }
+  return Object.fromEntries(list.map((e) => [e.key, e.n / k]));
+}
+
+/** One BOQ row from the bridge's per-tag measurements; overrides = {tag | "LT-05" | "LT": measure};
+ *  o = {real, minDed, decimals}. */
+function boqRow(t, overrides, lang, o) {
   const { code, codeNN } = tagCode(t.tag);
   const cat = code ? TAG_STANDARD[code] : undefined;
   const measure = boqMeasure(t.tag, overrides);
+  const D = o.decimals;
+  const L = CSV_TEXT[lang];
   const list = (k) => (Array.isArray(t[k]) ? t[k] : []);
   const parts = (a) => `${a.length}${a.length >= 10 ? '+' : ''} part(s): ` +
-    a.map((o) => `${[o.name, o.id != null ? `(id ${o.id})` : ''].filter(Boolean).join(' ') || '?'} ${(o.size_mm || []).join(' x ')} mm` +
-      `${o.sides_m2 ? ` [sides ${o.sides_m2.join(' / ')} m²]` : ''}`).join('; ');
+    a.map((p) => `${[p.name, p.id != null ? `(id ${p.id})` : ''].filter(Boolean).join(' ') || '?'} ${(p.size_mm || []).join(' x ')} mm` +
+      `${p.sides_m2 ? ` [sides ${p.sides_m2.join(' / ')} m²]` : ''}`).join('; ');
+  const ap = AREA_MEASURES.has(measure) ? areaParts(t, measure, cat, o) : null;
   const warnings = [];
   if (!measure) {
     warnings.push('No unit: the tag name does not start with a known code (e.g. "FL-01 ..."). Rename the tag, or pass ' +
@@ -472,18 +542,37 @@ function boqRow(t, overrides, lang) {
     warnings.push(`Not thin, so NOT included: ${parts(list('not_thin'))}. Model each wall/partition/cladding as a thin group ` +
       'per straight wall run; side_area_m2 (all vertical faces) is given for reference.');
   }
+  if ((measure === 'wall_area' || measure === 'sheet_area') && list('wrapped').length) {
+    warnings.push(`Measured as a wrapped surface, every upright face once (a casing round a column, walls of a corner drawn as one skin): ${parts(list('wrapped'))}.`);
+  }
   if (measure === 'wall_area' && list('not_upright').length) {
-    warnings.push(`Thin but lying flat (not a wall), so NOT included: ${parts(list('not_upright'))}.`);
+    warnings.push(ap && ap.kind === 'reveals'
+      ? `Thin pieces lying flat (the head or sill of an opening, a wall cap?) are included with the returns and reveals: ${parts(list('not_upright'))}.`
+      : `Thin but lying flat (not a wall), so NOT included: ${parts(list('not_upright'))}.`);
   }
   if ((measure === 'wall_area' || measure === 'sheet_area') && list('not_straight').length) {
     warnings.push(`Curved or segmented, measured approximately as half of its vertical faces: ${parts(list('not_straight'))}. ` +
       'Split it into straight runs for an exact figure.');
   }
-  if ((measure === 'wall_area' || measure === 'sheet_area') && list('uneven_sides').length) {
+  if (AREA_MEASURES.has(measure) && measure !== 'side_area' && list('uneven_sides').length) {
     warnings.push(`The two sides differ (an opening cut in one side only, or a pilaster/niche on one side?), the smaller side was used: ${parts(list('uneven_sides'))}.`);
   }
-  if (measure === 'plan_area' && !t.plan_area_m2 && t.count) {
+  if (measure === 'plan_area' && ap && !ap.quantity && t.count) {
     warnings.push('No horizontal or sloped faces found: check that these objects are floors/ceilings.');
+  }
+  if (measure && measure !== 'count' && t.overlap_n) {
+    warnings.push(`${t.overlap_n} piece(s) lie exactly on another piece of the same category, so they are counted twice (a finish ` +
+      `drawn over another one?): ${list('overlaps').map((p) => `${p.name || '?'}${p.id != null ? ` (id ${p.id})` : ''} on ` +
+        `${(p.on && p.on.name) || '?'}${p.on && p.on.id != null ? ` (id ${p.on.id})` : ''}`).join('; ')}.`);
+  }
+  if (measure === 'wall_area' && t.uncut_n) {
+    warnings.push(`${t.uncut_n} door(s)/window(s) stand in a wall that is not cut there, so their opening is NOT deducted: ` +
+      `${list('uncut').map((p) => `${p.name || '?'} (${p.tag}${p.id != null ? `, id ${p.id}` : ''}) in ${(p.wall && p.wall.name) || '?'}` +
+        `${p.wall && p.wall.id != null ? ` (id ${p.wall.id})` : ''}`).join('; ')}. Cut the opening in the wall finish.`);
+  }
+  if (ap && ap.notIncluded > 0.005) {
+    warnings.push(`${round(ap.notIncluded, D)} m² of exposed vertical sides taller than 400 mm (the flank of a stair or a platform?) ` +
+      'are NOT included: tag them as their own finish if they are finished.');
   }
   const nested = Object.entries(t.nested_components || {});
   if (AREA_MEASURES.has(measure) && nested.length) {
@@ -502,59 +591,86 @@ function boqRow(t, overrides, lang) {
   if (measure === 'count' && !t.count && t.loose_faces) {
     warnings.push('Only loose faces carry this tag: make each item a group or component so it can be counted.');
   }
-  return {
+  const raw = rawQuantity(t, measure, cat, o);
+  const row = {
     code: codeNN || code || null,
     tag: t.tag,
     category: cat ? cat[lang] : null,
-    quantity: boqQuantity(t, measure),
+    quantity: raw == null ? null : measure === 'count' ? raw : round(raw, measure === 'volume' ? Math.max(3, D) : D),
     unit: measure ? MEASURE_UNIT[measure] : null,
     measured_as: measure,
+  };
+  if (ap) {
+    // gross - openings (+ the small ones that are not deducted) = main; + vertical parts or reveals = quantity
+    const n = (v) => round(v, D);
+    row.main_m2 = n(ap.main);
+    if (ap.kind) row[ap.kind === 'vertical' ? 'vertical_m2' : 'reveals_m2'] = n(ap.extra);
+    row.gross_m2 = n(ap.gross);
+    row.deducted_m2 = n(ap.deducted);
+    row.openings = ap.openings;
+    if (ap.keptN) {
+      row.not_deducted_m2 = n(ap.kept);
+      row.not_deducted = ap.keptN;
+    }
+    const w = [];
+    if (ap.openings) w.push(`${L.work.gross} ${n(ap.gross)} - ${L.work.openings} ${n(ap.gross - ap.main)} (${ap.openings}) = ${n(ap.main)}`);
+    else w.push(String(n(ap.main)));
+    if (ap.keptN) w.push(`+ ${L.work.kept} ${n(ap.kept)} (${ap.keptN})`);
+    if (ap.kind && ap.extra > 0) w.push(`+ ${L.work[ap.kind]} ${n(ap.extra)}`);
+    row.workings = w.join(' ');
+  }
+  Object.assign(row, {
     count: t.count,
     items: t.items,
-    plan_area_m2: round(t.plan_area_m2, 2),
-    wall_area_m2: round(t.wall_area_m2, 2),
-    sheet_area_m2: round(t.sheet_area_m2, 2),
-    side_area_m2: round(t.side_area_m2, 2),
-    length_m: round(t.length_m, 2),
-    elevation_area_m2: round(t.elevation_area_m2, 2),
-    volume_m3: round(t.volume_m3, 3),
+    plan_area_m2: round(t.plan_area_m2, D),
+    wall_area_m2: round(t.wall_area_m2, D),
+    sheet_area_m2: round(t.sheet_area_m2, D),
+    side_area_m2: round(t.side_area_m2, D),
+    length_m: round(t.length_m, D),
+    elevation_area_m2: round(t.elevation_area_m2, D),
+    volume_m3: round(t.volume_m3, Math.max(3, D)),
+    ...(Array.isArray(t.pieces) && t.pieces.length ? { pieces: t.pieces } : {}),
     ...(warnings.length ? { warnings } : {}),
-  };
+  });
+  return row;
 }
 
 /** CSV text for Excel: UTF-8 with BOM, CRLF; semicolon format = ";" separator and decimal comma.
- *  With rooms: one column per room (quantity in the row's unit) after the total. */
-function boqCsv(rows, lang, format, rooms) {
+ *  With rooms: one column per room (quantity in the row's unit) after the total. The last line says the quantities come
+ *  from software. */
+function boqCsv(rows, lang, format, rooms, footer) {
   const L = CSV_TEXT[lang];
   const sep = format === 'semicolon' ? ';' : ',';
-  const num = (v) => (v == null ? '' : format === 'semicolon' ? String(v).replace('.', ',') : String(v));
+  const dc = (v) => (format === 'semicolon' ? String(v).replace(/(\d)\.(\d)/g, '$1,$2') : String(v));
+  const num = (v) => (v == null ? '' : dc(v));
   const cell = (v) => {
     let s = v == null ? '' : String(v);
     if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; // never let Excel read a cell as a formula
     return /["\r\n;,]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const unit = (r) => cell(r.unit ? L.unit[r.unit] : '');
+  const H = L.head;
   const lines = [];
   if (rooms) {
-    const last = L.head.length - 1; // Warnings
-    lines.push([L.head[0], L.head[1], L.head[2], L.head[4], L.total, ...rooms.map((rm) => rm || L.no_room), L.head[5], L.head[last]]
-      .map(cell).join(sep));
+    lines.push([H[0], H[1], H[2], H[4], L.total, ...rooms.map((rm) => rm || L.no_room), H[5], H[6], H[H.length - 1]].map(cell).join(sep));
     for (const r of rows) {
       lines.push([cell(r.code), cell(r.tag), cell(r.category), unit(r), num(r.quantity),
         ...rooms.map((rm) => num(r.by_room ? r.by_room[rm || L.no_room] : null)),
-        cell(r.measured_as ? L.measure[r.measured_as] : ''), cell((r.warnings || []).join(' '))].join(sep));
+        cell(r.measured_as ? L.measure[r.measured_as] : ''), cell(dc(r.workings || '')), cell((r.warnings || []).join(' '))].join(sep));
     }
   } else {
-    lines.push(L.head.map(cell).join(sep));
+    lines.push(H.map(cell).join(sep));
     for (const r of rows) {
       lines.push([
         cell(r.code), cell(r.tag), cell(r.category), num(r.quantity), unit(r),
-        cell(r.measured_as ? L.measure[r.measured_as] : ''), num(r.count), num(r.plan_area_m2), num(r.wall_area_m2),
-        num(r.sheet_area_m2), num(r.side_area_m2), num(r.length_m), num(r.elevation_area_m2), num(r.volume_m3),
+        cell(r.measured_as ? L.measure[r.measured_as] : ''), cell(dc(r.workings || '')), num(r.count), num(r.plan_area_m2),
+        num(r.wall_area_m2), num(r.sheet_area_m2), num(r.side_area_m2), num(r.length_m), num(r.elevation_area_m2), num(r.volume_m3),
+        num(r.gross_m2), num(r.deducted_m2), num(r.openings), num(r.not_deducted_m2), num(r.vertical_m2 ?? r.reveals_m2),
         cell(Object.entries(r.items || {}).map(([n, c]) => `${n} x${c}`).join('; ')), cell((r.warnings || []).join(' ')),
       ].join(sep));
     }
   }
+  if (footer) lines.push([cell(footer), ...Array((rooms ? rooms.length + 8 : H.length) - 1).fill('')].join(sep)); // as wide as the table
   return BOM + lines.join('\r\n') + '\r\n';
 }
 
@@ -592,22 +708,35 @@ server.registerTool('setup_tags', {
 
 server.registerTool('interior_takeoff', {
   description:
-    'Bill of quantities (BOQ) for interior work: one row per tag (= one specification), with the unit its category needs:\n' +
-    'FL floors and CL ceilings -> area m², once per board whatever its face orientation, sloped parts at their real area; WL wall finishes, ' +
-    'PA partitions, GL glass -> area of ONE side of each thin upright piece (openings cut in one side deducted), m²; SK skirting, ' +
-    'CO cornices -> length m (runs made with Follow Me too); ' +
-    'CU curtains -> width x height m²; EX existing structure -> volume m³; DR, WN, JN, FN, LT, SN, EQ, DE -> count ' +
-    '(outermost group/component per tag, by definition). Every row also has all the other measures, and the totals per category. ' +
-    'by_room=true adds the quantity of every row per room (a room = a named group WITHOUT a tag, e.g. "Living room"; ' +
-    'otherwise taken from object names "<code> <room> - <location>"). RF reference tags are skipped. Warnings list geometry ' +
-    'that is in no tagged object and parts that could not be measured (e.g. a wall that is not a thin object). ' +
-    'csv_path also writes the table to a CSV file for Excel (with by_room: one column per room).',
+    'Bill of quantities (BOQ) for interior work, measured on the real surfaces of the model: one row per tag (= one ' +
+    'specification), with the unit its category needs:\n' +
+    'FL floors -> the surfaces looking up plus the vertical parts between them (risers, platform fronts), m²; CL ceilings -> the ' +
+    'undersides plus the drops of stepped ceilings and exposed fascias, m² (sloped parts at their real area); WL wall finishes -> ' +
+    'ONE side of each thin upright piece plus its returns and reveals (niche sides, panels turned into an opening, heads and ' +
+    'sills), m²; PA partitions, GL glass -> one side, m²; SK skirting, CO cornices -> length m (runs with returns or made ' +
+    'with Follow Me, and boards running up a stair, at their real length); CU curtains -> width x height m²; EX existing ' +
+    'structure -> volume m³; DR, WN, JN, FN, LT, SN, EQ, DE -> count (outermost group/component per tag, by definition).\n' +
+    'Area rows show their workings: gross_m2 - deducted_m2 (openings found in the pieces: holes and notches cut into an ' +
+    'edge) = main_m2, + vertical_m2 / reveals_m2 = quantity. rules="vn" applies Vietnamese practice (openings under 0.25 m² ' +
+    'are not deducted, 3 decimals); min_deduction_m2 and decimals set them one by one; surfaces="main" leaves the vertical ' +
+    'parts and reveals out (the quantities of version 1.5). by_room=true adds the quantity of every row per room (a room = ' +
+    'a named group WITHOUT a tag, e.g. "Living room"; otherwise taken from object names "<code> <room> - <location>"); the ' +
+    'rooms add up to the row. RF reference tags are skipped. Warnings list geometry in no tagged object, parts that could ' +
+    'not be measured, finishes drawn twice in the same place and doors standing in a wall that is not cut; checks compares ' +
+    'floor and ceiling per room and what create_room built with what is measured now. detail=true lists the pieces behind ' +
+    'every row. csv_path also writes the table to a CSV file for Excel (with by_room: one column per room).',
   inputSchema: {
     selection_only: z.boolean().default(false).describe('Only the selected objects (e.g. one room)'),
     include_hidden: z.boolean().default(false).describe('Also measure hidden objects and objects on hidden tags/folders (they are listed in warnings otherwise)'),
     by_room: z.boolean().default(false).describe('Also split every row by room (rooms = named groups without a tag)'),
     measures: opt(jsonish(z.record(Str, z.enum(MEASURES)))).describe(
       'Unit override per tag name, per code-number ("LT-05") or per code ("JN"), e.g. {"LT-05": "length", "JN": "elevation_area"}'),
+    surfaces: z.enum(['real', 'main']).default('real').describe(
+      'real = floors and ceilings with their vertical parts, wall finishes with returns and reveals; main = without them'),
+    rules: opt(z.enum(Object.keys(RULE_SETS))).describe('Measuring rule set: "vn" = openings under 0.25 m² not deducted, 3 decimals'),
+    min_deduction_m2: opt(z.number().min(0)).describe('Openings smaller than this stay in the quantity (default 0: every opening is deducted)'),
+    decimals: opt(z.number().int().min(2).max(3)).describe('Decimals of lengths and areas (default 2; volumes always 3)'),
+    detail: z.boolean().default(false).describe('List the pieces behind every row (id, size, one side, openings, vertical parts)'),
     thin_ratio: z.number().gt(0).lt(1).default(0.5).describe('A piece is thin when its thickness <= thin_ratio x its smaller in-plane size'),
     max_thickness_mm: z.number().positive().default(600).describe('Thicker pieces are never taken for a wall/board (e.g. a corridor drawn as one box)'),
     language: z.enum(['en', 'vi']).default('en').describe('Language of category names, room placeholder and CSV headers/units'),
@@ -618,37 +747,54 @@ server.registerTool('interior_takeoff', {
   },
   // destructive: with overwrite=true it replaces an existing .csv file
   annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
-}, async ({ selection_only, include_hidden, by_room, measures, thin_ratio, max_thickness_mm, language, csv_path, csv_format, overwrite }) => {
+}, async (args) => {
+  const { selection_only, include_hidden, by_room, measures, surfaces, rules, detail, thin_ratio, max_thickness_mm, language,
+    csv_path, csv_format, overwrite } = args;
+  const rule = rules ? RULE_SETS[rules] : {};
+  const o = {
+    real: surfaces === 'real',
+    minDed: args.min_deduction_m2 ?? rule.min_deduction_m2 ?? 0,
+    decimals: args.decimals ?? rule.decimals ?? 2,
+  };
+  const D = o.decimals;
   const csvFile = csv_path ? await checkCsvPath(csv_path, overwrite) : null; // before measuring: fail fast
+  // surfaces are worked out for the area and length categories only (a tag given an area unit by hand: for every tag)
+  const areaOverride = Object.values(measures || {}).some((m) => AREA_MEASURES.has(m) || m === 'length');
   const r = (await call('measure_tags', {
-    selection_only, include_hidden, by_room, thin_ratio, max_thickness_mm, exclude_codes: EXCLUDED_CODES,
+    selection_only, include_hidden, by_room: true, thin_ratio, max_thickness_mm, exclude_codes: EXCLUDED_CODES,
+    min_deduction_m2: o.minDed, detail, opening_codes: ['DR', 'WN'],
+    real_codes: areaOverride ? undefined
+      : Object.entries(TAG_STANDARD).filter(([, c]) => AREA_MEASURES.has(c.measure) || c.measure === 'length').map(([k]) => k),
   })) || {};
-  const over = normalizeMeasures(measures, (Array.isArray(r.tags) ? r.tags : []).map((t) => t.tag));
+  const tags = (Array.isArray(r.tags) ? r.tags : []).filter((t) => t.tag !== 'Untagged');
+  const over = normalizeMeasures(measures, tags.map((t) => t.tag));
   const L = CSV_TEXT[language];
-  const rows = (Array.isArray(r.tags) ? r.tags : []).filter((t) => t.tag !== 'Untagged').map((t) => boqRow(t, over, language));
+  const rows = tags.map((t) => boqRow(t, over, language, o));
+  const byTag = new Map(rows.map((row) => [row.tag, row]));
+  const catOf = (tag) => { const c = tagCode(tag).code; return c ? TAG_STANDARD[c] : undefined; };
+  const roomRows = Array.isArray(r.rooms) ? r.rooms.filter((t) => t.tag !== 'Untagged') : null;
 
   let rooms;
   if (by_room) {
-    if (!Array.isArray(r.rooms)) {
+    if (!roomRows) {
       throw new SketchUpError('The bridge in SketchUp does not split quantities by room (it is older than this MCP server): ' +
         'run install_sketchup_bridge, then fully quit and reopen SketchUp.');
     }
-    const byTag = new Map(rows.map((row) => [row.tag, row]));
     const seen = new Set();
     const raw = new Map(); // row -> {room: unrounded quantity}
-    for (const t of r.rooms) {
+    for (const t of roomRows) {
       const row = byTag.get(t.tag);
       if (!row || !row.measured_as) continue;
       seen.add(t.room || '');
-      const v = t[MEASURE_FIELD[row.measured_as]];
+      const v = rawQuantity(t, row.measured_as, catOf(t.tag), o);
       if (typeof v !== 'number') continue;
       const m = raw.get(row) || raw.set(row, {}).get(row);
       const room = t.room || L.no_room;
       m[room] = (m[room] || 0) + v;
     }
     for (const [row, m] of raw) {
-      row.by_room = {};
-      for (const [room, v] of Object.entries(m)) row.by_room[room] = row.measured_as === 'count' ? v : round(v, row.measured_as === 'volume' ? 3 : 2);
+      // the rooms add up to the row: the rounding difference goes to the rooms closest to the next digit
+      row.by_room = row.measured_as === 'count' ? m : roundSplit(m, row.quantity, row.measured_as === 'volume' ? Math.max(3, D) : D);
     }
     // natural order ("Bedroom 2" before "Bedroom 10"), objects outside any room last
     rooms = [...seen].sort((a, b) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })));
@@ -664,6 +810,44 @@ server.registerTool('interior_takeoff', {
     else tot.unit = 'mixed';
   }
   for (const t of Object.values(totals)) if (t.unit === 'mixed') delete t.quantity;
+
+  // cross-checks, per room: floor against ceiling, and what create_room built against what is measured now
+  const checks = [];
+  if (roomRows && !r.selection_only) {
+    const sum = {}; // room -> {fl, cl, wall, reveal, sk}
+    for (const t of roomRows) {
+      const row = byTag.get(t.tag);
+      const code = tagCode(t.tag).code;
+      if (!row || !row.measured_as || !t.room) continue;
+      const s = sum[t.room] || (sum[t.room] = { fl: 0, cl: 0, wall: 0, reveal: 0, sk: 0 });
+      if (AREA_MEASURES.has(row.measured_as)) {
+        const ap = areaParts(t, row.measured_as, catOf(t.tag), o);
+        if (code === 'FL' && row.measured_as === 'plan_area') s.fl += ap.main;
+        if (code === 'CL' && row.measured_as === 'plan_area') s.cl += ap.main;
+        if (code === 'WL' && row.measured_as === 'wall_area') { s.wall += ap.main; s.reveal += ap.extra; }
+      } else if (code === 'SK' && row.measured_as === 'length') {
+        s.sk += t.length_m || 0;
+      }
+    }
+    const differs = (a, b) => Math.abs(a - b) > Math.max(0.02, 0.01 * Math.max(a, b));
+    for (const [room, s] of Object.entries(sum)) {
+      if (s.fl > 0.5 && s.cl > 0.5 && Math.abs(s.fl - s.cl) > 0.03 * Math.max(s.fl, s.cl)) {
+        checks.push(`${room}: floor ${round(s.fl, D)} m², ceiling ${round(s.cl, D)} m² - they usually match (a part missing, or drawn twice?).`);
+      }
+    }
+    for (const rec of Array.isArray(r.room_records) ? r.room_records : []) {
+      const s = sum[rec.room];
+      if (!s) continue;
+      const pairs = [['floor finish', rec.floor_area_m2, s.fl, 'm²'], ['ceiling', rec.ceiling_area_m2, s.cl, 'm²'],
+        ['wall finish', rec.wall_area_net_m2, s.wall, 'm²'], ['skirting', rec.skirting_m, s.sk, 'm'],
+        ...(o.real ? [['reveals', rec.reveal_area_m2, s.reveal, 'm²']] : [])];
+      for (const [what, built, now, unit] of pairs) {
+        if (typeof built !== 'number' || !differs(built, now)) continue;
+        checks.push(`${rec.room}: create_room built ${round(built, D)} ${unit} of ${what}, the model now measures ${round(now, D)} ${unit} ` +
+          '(edited since, parts hidden, or other objects on these tags).');
+      }
+    }
+  }
 
   const warnings = [];
   const untagged = Array.isArray(r.untagged) ? r.untagged : [];
@@ -688,26 +872,41 @@ server.registerTool('interior_takeoff', {
   }
   const unused = Object.keys(measures || {}).filter((k) => !over.used.has(k));
   if (unused.length) warnings.push(`measures key(s) matching no tag: ${unused.join(', ')} (use a full tag name, "LT-05" or "LT").`);
+  if (r.exposure_tests_skipped) {
+    warnings.push(`${r.exposure_tests_skipped} vertical side(s) were not tested for being exposed (too many in this model): they are not in the quantities.`);
+  }
+  const software = L.software(VERSION);
   const out = {
     rows, totals,
     ...(rooms ? { rooms: rooms.map((rm) => rm || L.no_room) } : {}),
     ...(warnings.length ? { warnings } : {}),
+    ...(checks.length ? { checks } : {}),
     ...(untagged.length ? { untagged } : {}),
     ...(hiddenAll.length ? { hidden: hiddenAll } : {}),
     excluded: r.excluded && Object.keys(r.excluded).length ? r.excluded : undefined,
     selection_only: r.selection_only === true,
+    rules: { surfaces, min_deduction_m2: o.minDed, decimals: D, ...(rules ? { set: rules } : {}) },
     notes: [
-      'plan_area: non-vertical faces at their real area, once per closed board/slab. wall_area: one side of thin upright pieces ' +
-        '(the smaller side when they differ). sheet_area: one side of thin pieces in any orientation.',
-      'side_area: all vertical faces (e.g. the returns of a stepped ceiling). length: straight runs by their length, runs that turn ' +
-        '(Follow Me) by their swept length; parallel parts of one run (board + cap) count once. elevation_area: width x height of each object.',
+      software,
+      'Area rows: gross_m2 - deducted_m2 = main_m2 (+ the small openings that are not deducted), + vertical_m2 or reveals_m2 = quantity. ' +
+        'With by_room the rooms are rounded so that they add up to the row. ' +
+        'Openings are the holes in a piece and the notches cut into one of its edges; an opening that runs the whole height of a wall ' +
+        'ends the piece and is not listed.',
+      'Floors: main = surfaces looking up, vertical = risers, platform fronts up to 400 mm and upright boards on the tag. Ceilings: ' +
+        'main = undersides, vertical = the drops of stepped ceilings, exposed fascias and upright boards. Wall finishes: main = one side of ' +
+        'thin upright pieces, reveals = returns, niche sides, panels turned into openings, heads and sills. A vertical side between the ' +
+        'upper and the lower side of a piece (the side of a box bulkhead, the front of a platform) counts as exposed when nothing lies ' +
+        'within 50 mm in front of it and the space in front of it is over a floor (it looks into a room).',
+      'plan_area_m2, wall_area_m2, sheet_area_m2, side_area_m2 (all vertical faces) are the measures of earlier versions, kept for reference. ' +
+        'length: straight runs by their length, runs that turn by the length of their path, boards on a slope along the slope; ' +
+        'a board and its cap count once. elevation_area: width x height of each object.',
     ],
   };
   if (csvFile) {
     try {
       await fs.mkdir(path.dirname(csvFile), { recursive: true });
       // 'wx' fails if the file appeared meanwhile, so it is never replaced without overwrite=true
-      await fs.writeFile(csvFile, boqCsv(rows, language, csv_format, rooms), { encoding: 'utf8', flag: overwrite ? 'w' : 'wx' });
+      await fs.writeFile(csvFile, boqCsv(rows, language, csv_format, rooms, software), { encoding: 'utf8', flag: overwrite ? 'w' : 'wx' });
       out.csv = { path: csvFile, rows: rows.length, format: csv_format, by_room: !!rooms };
     } catch (e) {
       // keep the bill of quantities: only the file could not be written
@@ -761,6 +960,8 @@ const OpeningSpec = z.strictObject({
   tag: opt(Str).describe('e.g. "DR-01 Oak door 900x2100", "WN-01 ...", "GL-01 Glass wall": the leaf/pane gets it and counts as an item; ' +
     'empty = a hole only'),
   material: opt(Str), color: opt(Str), name: opt(Str),
+  reveal: opt(z.number().min(0)).describe('Depth in mm of the wall the opening goes through: its jambs and head (and its sill, above ' +
+    'the floor) are lined with the wall finish of that edge, measured with the reveals of that finish'),
 });
 
 /** Vietnamese text? Letters only Vietnamese uses, or a few common words whose letters other languages share ("Phòng khách"). */
@@ -791,7 +992,8 @@ server.registerTool('create_room', {
     'own axes (origin at the start of their edge, x along it, y into the room), so geometry added inside one later must be ' +
     'given in those axes (transform model points by the inverse of the group transformations). Leave a part out to skip it. Returns {room, ' +
     'parts:[{id, kind, name, tag}], quantities:{floor_area_m2, perimeter_m, wall_area_gross_m2, wall_area_net_m2, ' +
-    'ceiling_area_m2, skirting_m}}.',
+    'ceiling_area_m2, skirting_m, reveal_area_m2}} (the same figures interior_takeoff measures on the room, kept on it for a ' +
+    'cross-check).',
   inputSchema: {
     name: Str.describe('Room name, e.g. "Living room"'),
     points: jsonish(z.array(Point).min(3)).describe('Outline [[x,y],...] mm, in order around the room'),
@@ -805,6 +1007,7 @@ server.registerTool('create_room', {
     language: opt(z.enum(['en', 'vi'])).describe('Built-in part names; default: Vietnamese when the names look Vietnamese, else English'),
     labels: opt(jsonish(z.strictObject({
       floor: opt(Str), wall: opt(Str), ceiling: opt(Str), skirting: opt(Str), door: opt(Str), window: opt(Str), glass: opt(Str),
+      reveal: opt(Str),
     }))).describe('Part names in any language, e.g. {"wall": "Wand", "floor": "Boden"}'),
   },
   annotations: EDIT,

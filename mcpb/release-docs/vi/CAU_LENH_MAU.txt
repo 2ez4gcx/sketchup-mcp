@@ -41,11 +41,17 @@ LT đèn, SN thiết bị vệ sinh, EQ thiết bị, CU rèm, DE trang trí, EX
 - Gom các vật thể phòng khách thành phòng tên "Phòng khách" (group có tên, KHÔNG gắn tag).
 - Bóc khối lượng theo phòng và lưu ra D:/BOQ/khoi-luong.csv.   (mỗi phòng một cột trong file CSV)
 - Tính cả các vật thể đang ẩn.   (mặc định vật thể trên tag ẩn chỉ được liệt kê trong phần cảnh báo)
+- Bóc khối lượng theo cách đo của Việt Nam.   (rules "vn": ô mở dưới 0,25 m² không trừ, 3 chữ số thập phân)
+- Không trừ các ô mở nhỏ hơn 0,5 m², và liệt kê các mảnh đứng sau mỗi dòng.   (min_deduction_m2, detail)
+- Chỉ lấy số mặt bằng, không tính mặt đứng và má cửa.   (surfaces "main")
+  (mỗi dòng diện tích ghi: tổng - ô mở đã trừ = bề mặt chính, + mặt đứng hoặc má cửa = khối lượng;
+   sàn gồm cổ bậc và thành bục, trần gồm thành giật cấp, tường hoàn thiện gồm má cửa)
 
 DỰNG PHÒNG, KIỂM TRA & SCENE HỒ SƠ
 - Dựng phòng khách từ các điểm (0,0), (5000,0), (5000,4000), (0,4000), cao 2800 mm: sàn FL-01,
   tường WL-01 với tường điểm nhấn ốp gỗ óc chó WL-02 ở cạnh 3, trần CL-01, len SK-01,
   cửa đi DR-01 900 x 2100 ở cạnh 1 cách đầu cạnh 500 mm, cửa sổ WN-01 1500 x 1200 ở cạnh 3 cách đầu cạnh 1000 mm, bậu 900 mm.
+  Tường dày 200 mm: ốp má cửa cho cả hai ô mở.   (reveal 200: hai má, đầu và bậu cửa bằng lớp hoàn thiện tường)
   (đường bao là mặt trong của tường thô; cạnh 1 đi từ điểm 1 đến điểm 2; mọi phần đều có tag và tên,
    gom trong group phòng, sẵn sàng bóc khối lượng theo phòng)
 - Dựng sảnh từ các điểm (5000,0), (8000,0), (8000,4000), (5000,4000), cao 2800 mm, sàn FL-01, tường WL-01,

@@ -277,8 +277,8 @@ check('interior_takeoff: FN -> count pcs', row('FN-01 Sofa').quantity === 2 && r
 check('interior_takeoff: tag without a code -> no unit + warning', row('Kitchen').quantity === null && /known code/.test((row('Kitchen').warnings || []).join(' ')), r.txt);
 check('interior_takeoff: no Untagged row; warning names the untagged geometry with id and room', !boq.rows.some((x) => x.tag === 'Untagged')
   && /no tagged object/.test((boq.warnings || []).join(' ')) && boq.warnings[0].includes("Table (id 5) in Living room"), r.txt);
-check('interior_takeoff: by_room not requested -> no by_room data, bridge asked without it', !boq.rooms && !row('FN-01 Sofa').by_room
-  && mq && !mq.params.by_room, r.txt);
+check('interior_takeoff: by_room not requested -> no by_room data in the answer (the bridge is still asked, for the cross-checks)', !boq.rooms && !row('FN-01 Sofa').by_room
+  && mq && mq.params.by_room === true, r.txt);
 check('interior_takeoff: totals per category (FL = 24.35 + 5.5)', boq.totals.FL && boq.totals.FL.quantity === 29.85 && boq.totals.FL.lines === 2
   && boq.totals.FL.category === 'Floor finishes', JSON.stringify(boq.totals));
 behaviours.set('measure_tags', [{ reply: MT_REPLY }]);
@@ -293,8 +293,9 @@ r = await S.tool('interior_takeoff', { by_room: true });
 boq = JSON.parse(r.txt);
 const mq2 = received.find((q) => q.cmd === 'measure_tags');
 check('interior_takeoff by_room: asks the bridge for rooms', mq2 && mq2.params.by_room === true, JSON.stringify(mq2 && mq2.params));
-check('interior_takeoff by_room: FL-01 split per room in its unit', row('FL-01 Engineered oak floor 12mm').by_room
-  && row('FL-01 Engineered oak floor 12mm').by_room['Living room'] === 20 && row('FL-01 Engineered oak floor 12mm').by_room['Level 2 / Bedroom 1'] === 4.34, r.txt);
+check('interior_takeoff by_room: FL-01 split per room in its unit, the rooms adding up to the row (20.004 + 4.3416 -> 20.01 + 4.34 = 24.35)', row('FL-01 Engineered oak floor 12mm').by_room
+  && row('FL-01 Engineered oak floor 12mm').by_room['Living room'] === 20.01 && row('FL-01 Engineered oak floor 12mm').by_room['Level 2 / Bedroom 1'] === 4.34
+  && row('FL-01 Engineered oak floor 12mm').quantity === 24.35, r.txt);
 check('interior_takeoff by_room: counts per room, objects outside rooms under "(no room)" listed last', row('FN-01 Sofa').by_room['Living room'] === 2
   && row('SK-01 Oak skirting 80mm').by_room['(no room)'] === 15.23 && boq.rooms[boq.rooms.length - 1] === '(no room)', JSON.stringify(boq.rooms) + r.txt);
 check('interior_takeoff by_room: rooms in natural order (Bedroom 2 before Bedroom 10)', boq.rooms.indexOf('Bedroom 2') >= 0
@@ -307,9 +308,9 @@ const roomCsv = path.join(appdata, 'boq', 'rooms.csv');
 behaviours.set('measure_tags', [{ reply: MT_REPLY }]);
 r = await S.tool('interior_takeoff', { by_room: true, csv_path: roomCsv, language: 'vi' });
 const rc = fs.existsSync(roomCsv) ? fs.readFileSync(roomCsv, 'utf8').split('\r\n') : [];
-check('interior_takeoff by_room csv: one column per room after Tổng, then Cách đo and Cảnh báo', !r.isError
-  && rc[0] === BOM + 'Mã,Tag,Hạng mục,Đơn vị,Tổng,Bedroom 2,Bedroom 10,Level 2 / Bedroom 1,Living room,(chưa có phòng),Cách đo,Cảnh báo'
-  && rc.some((l) => l.startsWith('FL-01,') && l.includes(',24.35,,,4.34,20,,')), rc.slice(0, 3).join(' | '));
+check('interior_takeoff by_room csv: one column per room after Tổng, then Cách đo, Diễn giải and Cảnh báo; last line says it comes from software', !r.isError
+  && rc[0] === BOM + 'Mã,Tag,Hạng mục,Đơn vị,Tổng,Bedroom 2,Bedroom 10,Level 2 / Bedroom 1,Living room,(chưa có phòng),Cách đo,Diễn giải,Cảnh báo'
+  && rc.some((l) => l.startsWith('FL-01,') && l.includes(',24.35,,,4.34,20.01,,')) && rc.some((l) => l.startsWith('Khối lượng đo bằng phần mềm')), rc.slice(0, 3).join(' | '));
 const csvCells = (line) => { let n = 1; let q = false; for (const ch of line) { if (ch === '"') q = !q; else if (ch === ',' && !q) n++; } return n; };
 check('interior_takeoff by_room csv: every line has as many cells as the header', rc.filter(Boolean).every((l) => csvCells(l) === csvCells(rc[0])),
   rc.map(csvCells).join(','));
@@ -611,6 +612,95 @@ check('export_for_render: the Blender script is valid Python (skipped when pytho
 fs.rmSync(rdir, { recursive: true, force: true });
 r = await S.tool('export_for_render', { folder: 'render/out' });
 check('export_for_render: a relative folder is refused (SketchUp and the server would not agree on it)', r.isError, r.txt);
+
+// 25 (1.6.0): interior_takeoff on real surfaces - breakdown, openings, rule sets, warnings, cross-checks
+const op = (n, a, sn, sa) => ({ n, area_m2: a, small_n: sn, small_area_m2: sa });
+const none = { plan: op(0, 0, 0, 0), wall: op(0, 0, 0, 0), sheet: op(0, 0, 0, 0) };
+const mt16 = (tag, o = {}) => mt(tag, { up_area_m2: 0, down_area_m2: 0, rise_up_m2: 0, rise_down_m2: 0, sides_low_m2: 0, sides_tall_m2: 0,
+  reveal_m2: 0, openings: none, wrapped: [], overlaps: [], overlap_n: 0, uncut: [], uncut_n: 0, ...o });
+const R16 = {
+  tags: [
+    mt16('FL-02 Stone stair', { count: 1, plan_area_m2: 4.37, up_area_m2: 4.05, down_area_m2: 4.75, rise_up_m2: 2.72, sides_low_m2: 0.3,
+      sides_tall_m2: 5.5, wall_area_m2: 0.5, sheet_area_m2: 0.5, uneven_sides: [{ id: 3, name: 'Tread', size_mm: [1000, 270, 30], sides_m2: [0.27, 0.2] }] }),
+    mt16('CL-01 Gypsum ceiling', { count: 1, plan_area_m2: 20, up_area_m2: 20, down_area_m2: 20, rise_down_m2: 3.96, sides_tall_m2: 1,
+      overlap_n: 1, overlaps: [{ id: 9, name: 'Board B', size_mm: [4000, 5000, 9], on: { id: 8, name: 'Board A' } }] }),
+    mt16('WL-01 Paint', { count: 4, wall_area_m2: 13.51, sheet_area_m2: 14.01, reveal_m2: 1.12,
+      openings: { ...none, wall: op(2, 2.09, 1, 0.2) }, uncut_n: 1,
+      uncut: [{ id: 30, name: 'Door D2', tag: 'DR-02 Door', wall: { id: 31, name: 'Wall 4', size_mm: [4000, 2800, 10] } }] }),
+    mt16('PA-01 Partition', { count: 1, wall_area_m2: 10, sheet_area_m2: 10, reveal_m2: 2 }),
+    mt16('FN-01 Sofa', { count: 2 }),
+  ],
+  rooms: [
+    { ...mt16('FL-02 Stone stair', { up_area_m2: 4.05, plan_area_m2: 4.37, rise_up_m2: 2.72, sides_low_m2: 0.3, wall_area_m2: 0.5 }), room: 'Hall' },
+    { ...mt16('CL-01 Gypsum ceiling', { down_area_m2: 20, plan_area_m2: 20, rise_down_m2: 3.96, sides_tall_m2: 1 }), room: 'Hall' },
+    { ...mt16('WL-01 Paint', { wall_area_m2: 13.51, sheet_area_m2: 14.01, reveal_m2: 1.12, openings: { ...none, wall: op(2, 2.09, 1, 0.2) } }), room: 'Hall' },
+  ],
+  room_records: [{ room: 'Hall', floor_area_m2: 4.05, ceiling_area_m2: 20, wall_area_net_m2: 46.71 }],
+  untagged: [], hidden: [], excluded: {}, selection_only: false,
+};
+received.length = 0;
+behaviours.set('measure_tags', [{ reply: R16 }]);
+r = await S.tool('interior_takeoff', {});
+boq = JSON.parse(r.txt);
+let mq16 = received.find((q) => q.cmd === 'measure_tags');
+check('takeoff 1.6: the bridge gets the deduction threshold (0), the door codes and the area/length codes (not FN)', mq16
+  && mq16.params.min_deduction_m2 === 0 && JSON.stringify(mq16.params.opening_codes) === '["DR","WN"]'
+  && mq16.params.real_codes.includes('FL') && mq16.params.real_codes.includes('SK') && !mq16.params.real_codes.includes('FN')
+  && mq16.params.detail === false, JSON.stringify(mq16 && mq16.params));
+const fl2 = row('FL-02 Stone stair');
+check('takeoff 1.6: floor = surfaces looking up + risers + low fronts + upright boards (4.05 + 2.72 + 0.3 + 0.5 = 7.57)', fl2.quantity === 7.57
+  && fl2.main_m2 === 4.05 && fl2.vertical_m2 === 3.52 && /4\.05 \+ vertical parts 3\.52/.test(fl2.workings), JSON.stringify(fl2));
+check('takeoff 1.6: tall exposed sides of a floor piece are not included, and said so; uneven sides warned on floors too',
+  (fl2.warnings || []).some((w) => /5\.5 m² of exposed vertical sides taller than 400 mm/.test(w)) && (fl2.warnings || []).some((w) => /two sides differ/.test(w)), JSON.stringify(fl2.warnings));
+const cl1 = row('CL-01 Gypsum ceiling');
+check('takeoff 1.6: ceiling = undersides + drops + exposed fascias (20 + 3.96 + 1 = 24.96); a finish drawn twice is warned', cl1.quantity === 24.96
+  && cl1.vertical_m2 === 4.96 && (cl1.warnings || []).some((w) => /counted twice/.test(w) && w.includes('Board B (id 9) on Board A (id 8)')), JSON.stringify(cl1));
+const wl1 = row('WL-01 Paint');
+check('takeoff 1.6: wall finish = one side + returns/reveals + flat pieces (13.51 + 1.12 + 0.5 = 15.13); gross 15.6 - 2.09 deducted', wl1.quantity === 15.13
+  && wl1.main_m2 === 13.51 && wl1.reveals_m2 === 1.62 && wl1.gross_m2 === 15.6 && wl1.deducted_m2 === 2.09 && wl1.openings === 2
+  && wl1.not_deducted_m2 === undefined && /gross 15\.6 - openings 2\.09 \(2\) = 13\.51 \+ returns and reveals 1\.62/.test(wl1.workings), JSON.stringify(wl1));
+check('takeoff 1.6: a door standing in an uncut wall is warned', (wl1.warnings || []).some((w) => /NOT deducted/.test(w) && w.includes('Door D2 (DR-02 Door, id 30) in Wall 4 (id 31)')), JSON.stringify(wl1.warnings));
+check('takeoff 1.6: partitions stay one side only (reveals not added)', row('PA-01 Partition').quantity === 10 && row('PA-01 Partition').reveals_m2 === undefined, JSON.stringify(row('PA-01 Partition')));
+check('takeoff 1.6: cross-checks - floor against ceiling, and what create_room built against what is measured', (boq.checks || []).some((c) => /Hall: floor 4\.05 m², ceiling 20 m²/.test(c))
+  && (boq.checks || []).some((c) => /Hall: create_room built 46\.71 m² of wall finish, the model now measures 13\.51 m²/.test(c))
+  && !(boq.checks || []).some((c) => /of floor finish/.test(c)), JSON.stringify(boq.checks));
+check('takeoff 1.6: says the quantities come from software, and which rules were used', /measured by software/.test(boq.notes[0])
+  && boq.rules.surfaces === 'real' && boq.rules.min_deduction_m2 === 0 && boq.rules.decimals === 2, JSON.stringify([boq.notes[0], boq.rules]));
+received.length = 0;
+behaviours.set('measure_tags', [{ reply: R16 }]);
+r = await S.tool('interior_takeoff', { rules: 'vn', by_room: true, detail: true });
+boq = JSON.parse(r.txt);
+mq16 = received.find((q) => q.cmd === 'measure_tags');
+const wlv = row('WL-01 Paint');
+check('takeoff 1.6 rules=vn: threshold 0.25 sent; the small opening stays in (13.51 + 0.2 + 1.62 = 15.33), 1.89 deducted, 3 decimals', mq16
+  && mq16.params.min_deduction_m2 === 0.25 && mq16.params.detail === true && wlv.quantity === 15.33 && wlv.deducted_m2 === 1.89
+  && wlv.not_deducted_m2 === 0.2 && wlv.not_deducted === 1 && boq.rules.decimals === 3 && boq.rules.set === 'vn'
+  && /small openings not deducted 0\.2 \(1\)/.test(wlv.workings), JSON.stringify([mq16 && mq16.params, wlv, boq.rules]));
+check('takeoff 1.6 by_room: the room value uses the same rules as the row', wlv.by_room && wlv.by_room.Hall === 15.33, JSON.stringify(wlv.by_room));
+behaviours.set('measure_tags', [{ reply: R16 }]);
+r = await S.tool('interior_takeoff', { surfaces: 'main', decimals: 3 });
+boq = JSON.parse(r.txt);
+check('takeoff 1.6 surfaces=main: the quantities of 1.5 (plan area, one side), no vertical parts or reveals', row('FL-02 Stone stair').quantity === 4.37
+  && row('CL-01 Gypsum ceiling').quantity === 20 && row('WL-01 Paint').quantity === 13.51 && row('WL-01 Paint').reveals_m2 === undefined, r.txt.slice(0, 600));
+received.length = 0;
+behaviours.set('measure_tags', [{ reply: R16 }]);
+await S.tool('interior_takeoff', { measures: { FN: 'plan_area' } });
+mq16 = received.find((q) => q.cmd === 'measure_tags');
+check('takeoff 1.6: a tag given an area unit by hand -> surfaces worked out for every tag', mq16 && !('real_codes' in mq16.params), JSON.stringify(mq16 && mq16.params));
+const csv16 = path.join(appdata, 'boq', 'v16.csv');
+behaviours.set('measure_tags', [{ reply: R16 }]);
+r = await S.tool('interior_takeoff', { csv_path: csv16, csv_format: 'semicolon', rules: 'vn', language: 'vi' });
+const c16 = fs.existsSync(csv16) ? fs.readFileSync(csv16, 'utf8').split('\r\n') : [];
+check('takeoff 1.6 csv: workings, gross, deducted, openings, not deducted columns; decimal commas in the workings; footer as wide as the table',
+  c16[0] && c16[0].includes(';Diễn giải;') && c16[0].includes(';Tổng trước khi trừ (m²);Đã trừ (m²);Số ô mở;Không trừ (m²);')
+  && c16.some((l) => l.startsWith('WL-01;') && l.includes('tổng 15,6 - ô mở 2,09 (2) = 13,51') && l.includes(';15,6;1,89;2;0,2;1,62;'))
+  && c16.filter(Boolean).every((l) => l.split(';').length === c16[0].split(';').length) && c16.some((l) => l.startsWith('Khối lượng đo bằng phần mềm')),
+  c16.slice(0, 5).join(' | '));
+received.length = 0;
+await S.tool('create_room', { name: 'Study', points: [[0, 0], [3000, 0], [3000, 3000], [0, 3000]], walls: { tag: 'WL-01 Paint' },
+  openings: [{ edge: 1, width: 900, height: 2100, reveal: 200, tag: 'DR-01 Door' }], labels: { reveal: 'Laibung' } });
+cr = received.find((q) => q.cmd === 'create_room');
+check('create_room: opening reveal depth and its label forwarded', cr && cr.params.openings[0].reveal === 200 && cr.params.labels.reveal === 'Laibung', JSON.stringify(cr && cr.params));
 
 // 9: bridge install tool on a temporary APPDATA
 const inst = async (args) => JSON.parse((await S.tool('install_sketchup_bridge', args)).txt);

@@ -319,9 +319,148 @@ puts({ 'ok' => true }.to_json)`);
     console.log('SKIP  Blender not found (set BLENDER to blender.exe to check the import script)');
   }
 
+  // ---------------------------------------------------------------- 1.6: quantities on the real surfaces
+  // every case on its own tag, 20 m away along Y, built by hand so that the expected figures are known
+  await ruby(`m = Sketchup.active_model
+y0 = 20000
+tg = lambda { |n| m.layers[n] || m.layers.add(n) }
+pt = lambda { |x, y, z| Geom::Point3d.new(x.mm, y.mm, z.mm) }
+grp = lambda { |ents, name, tag| g = ents.add_group; g.name = name; g.layer = tag ? tg.call(tag) : m.layers[0]; g }
+rect = lambda { |ents, x0, ya, x1, yb, z| ents.add_face(pt.call(x0, ya, z), pt.call(x1, ya, z), pt.call(x1, yb, z), pt.call(x0, yb, z)) }
+box = lambda do |ents, x0, ya, z0, w, d, h|
+  f = rect.call(ents, x0, ya, x0 + w, ya + d, z0)
+  f.reverse! if f.normal.z < 0
+  f.pushpull(h.mm)
+end
+out = lambda { |f, d| f.pushpull(f.normal.y > 0 ? d.mm : -d.mm) } # a face in an XZ plane, pushed towards +Y
+stepped = lambda do |e, x0|
+  # a solid 600 deep, flat on top, its underside stepped: band 600 wide at 2500, centre at 2800
+  box.call(e, x0, y0, 2500, 4000, 5000, 600)
+  rect.call(e, x0 + 600, y0 + 600, x0 + 3400, y0 + 4400, 2500)
+  c = e.grep(Sketchup::Face).find { |f| f.normal.z.abs > 0.9 && f.bounds.max.z.to_mm.round == 2500 && (f.area - 2800.mm * 3800.mm).abs < 1 }
+  c.pushpull(c.normal.z < 0 ? -300.mm : 300.mm)
+end
+
+# T1 a stepped ceiling drawn as a single skin (faces not all turned the same way)
+e = grp.call(m.entities, 'T1 stepped skin', 'CL-11 T skin').entities
+rect.call(e, 0, y0, 4000, y0 + 5000, 2500)
+rect.call(e, 600, y0 + 600, 3400, y0 + 4400, 2500).erase!
+rect.call(e, 600, y0 + 600, 3400, y0 + 4400, 2800).reverse!
+[[600, 600, 3400, 600], [3400, 600, 3400, 4400], [3400, 4400, 600, 4400], [600, 4400, 600, 600]].each do |xa, ya, xb, yb|
+  e.add_face(pt.call(xa, y0 + ya, 2500), pt.call(xb, y0 + yb, 2500), pt.call(xb, y0 + yb, 2800), pt.call(xa, y0 + ya, 2800))
+end
+# T2 the same ceiling as a solid
+stepped.call(grp.call(m.entities, 'T2 stepped solid', 'CL-12 T solid').entities, 5000)
+# T3 a stair of boards (15 treads 270 x 1000, 16 risers 170 high) and T3b the stair as one solid (15 treads, 15 risers)
+g = grp.call(m.entities, 'T3 stair boards', 'FL-11 T stair boards')
+15.times { |k| box.call(g.entities.add_group.entities, 10000 + k * 270, y0, (k + 1) * 170 - 25, 270, 1000, 25) }
+16.times { |k| box.call(g.entities.add_group.entities, 10000 + k * 270 - 20, y0, k * 170, 20, 1000, 170) }
+prof = [[0, 0]]
+15.times { |k| prof << [k * 270, (k + 1) * 170] << [(k + 1) * 270, (k + 1) * 170] }
+prof << [15 * 270, 15 * 170 - 300] << [300, 0]
+out.call(grp.call(m.entities, 'T3b stair solid', 'FL-12 T stair solid').entities.add_face(prof.map { |x, z| pt.call(16000 + x, y0, z) }), 1000)
+# the floor it stands on (not behind its top end): its first riser and its flanks look into the room
+box.call(grp.call(m.entities, 'T3b floor', 'FL-19 T stair floor').entities, 15500, y0 - 500, -12, 4550, 2000, 12)
+# T4 a wall drawn as a skin with a niche 1000 x 1500, 250 deep
+e = grp.call(m.entities, 'T4 wall niche', 'WL-11 T niche').entities
+e.add_face(pt.call(22000, y0, 0), pt.call(26000, y0, 0), pt.call(26000, y0, 2700), pt.call(22000, y0, 2700))
+e.add_face(pt.call(23000, y0, 600), pt.call(24000, y0, 600), pt.call(24000, y0, 2100), pt.call(23000, y0, 2100)).erase!
+e.add_face(pt.call(23000, y0 + 250, 600), pt.call(24000, y0 + 250, 600), pt.call(24000, y0 + 250, 2100), pt.call(23000, y0 + 250, 2100))
+[[23000, 600, 24000, 600], [24000, 600, 24000, 2100], [24000, 2100, 23000, 2100], [23000, 2100, 23000, 600]].each do |xa, za, xb, zb|
+  e.add_face(pt.call(xa, y0, za), pt.call(xb, y0, zb), pt.call(xb, y0 + 250, zb), pt.call(xa, y0 + 250, za))
+end
+# T5 a wall board 4000 x 2700 with a door notch 900 x 2100 and a hole 400 x 500
+e = grp.call(m.entities, 'T5 wall holes', 'WL-12 T holes').entities
+e.add_face([[0, 0], [1000, 0], [1000, 2100], [1900, 2100], [1900, 0], [4000, 0], [4000, 2700], [0, 2700]].map { |x, z| pt.call(27000 + x, y0, z) })
+e.add_face(pt.call(29500, y0, 1000), pt.call(29900, y0, 1000), pt.call(29900, y0, 1500), pt.call(29500, y0, 1500)).erase!
+out.call(e.grep(Sketchup::Face).first, 10)
+# T6 a door standing in a wall board that is not cut
+out.call(grp.call(m.entities, 'T6 uncut wall', 'WL-13 T uncut').entities.add_face(pt.call(32000, y0, 0), pt.call(35000, y0, 0), pt.call(35000, y0, 2700), pt.call(32000, y0, 2700)), 10)
+box.call(grp.call(m.entities, 'T6 door', 'DR-11 T door').entities, 33000, y0 - 15, 0, 900, 40, 2100)
+# T7 a skirting board running up a stair: 4000 going, 2500 rise
+out.call(grp.call(m.entities, 'T7 raked skirting', 'SK-11 T raked').entities.add_face(pt.call(36000, y0, 0), pt.call(40000, y0, 2500), pt.call(40000, y0, 2580), pt.call(36000, y0, 80)), 12)
+# T8 a skirting run 4000 long with two 200 returns, one solid; T8b three boards round a wall end 600 x 100; T8c a board and its cap
+f = grp.call(m.entities, 'T8 skirting returns', 'SK-12 T returns').entities.add_face(
+  [[0, -200], [12, -200], [12, 0], [3988, 0], [3988, -200], [4000, -200], [4000, 12], [0, 12]].map { |x, y| pt.call(41000 + x, y0 + y, 0) })
+f.reverse! if f.normal.z < 0
+f.pushpull(80.mm)
+g = grp.call(m.entities, 'T8b skirting nib', 'SK-13 T nib')
+[[46000, 0, 600, 12], [46000, 112, 600, 12], [46600, 12, 12, 100]].each { |x, dy, w, d| box.call(g.entities.add_group.entities, x, y0 + dy, 0, w, d, 80) }
+g = grp.call(m.entities, 'T8c skirting cap', 'SK-14 T cap')
+box.call(g.entities.add_group.entities, 48000, y0, 0, 3000, 12, 80)
+box.call(g.entities.add_group.entities, 48000, y0, 80, 3000, 20, 10)
+# T9 a casing wrapped round a column 400 x 400 (a skin, open top and bottom)
+e = grp.call(m.entities, 'T9 column casing', 'WL-16 T casing').entities
+[[0, 0, 400, 0], [400, 0, 400, 400], [400, 400, 0, 400], [0, 400, 0, 0]].each do |xa, ya, xb, yb|
+  e.add_face(pt.call(52000 + xa, y0 + ya, 0), pt.call(52000 + xb, y0 + yb, 0), pt.call(52000 + xb, y0 + yb, 2700), pt.call(52000 + xa, y0 + ya, 2700))
+end
+# T10 the same floor board drawn twice
+2.times { |k| box.call(grp.call(m.entities, 'T10 board ' + (k + 1).to_s, 'FL-13 T twice').entities, 53500, y0, -12, 2000, 2000, 12) }
+# T room: floor, a 300 high platform, the stepped solid ceiling and a box bulkhead along one side
+room = m.entities.add_group
+room.name = 'T room'
+box.call(grp.call(room.entities, 'floor', 'FL-14 T floor').entities, 57000, y0, -12, 4000, 5000, 12)
+box.call(grp.call(room.entities, 'platform', 'FL-14 T floor').entities, 58500, y0 + 1500, 0, 1000, 1000, 300)
+stepped.call(grp.call(room.entities, 'ceiling', 'CL-13 T ceiling').entities, 57000)
+box.call(grp.call(room.entities, 'bulkhead', 'CL-14 T box').entities, 57000, y0, 2200, 600, 5000, 300)
+true`);
+  const rv = await must('create_room', { name: 'T reveal', points: [[63000, 20000], [67000, 20000], [67000, 23000], [63000, 23000]], height: 2700,
+    walls: { tag: 'WL-15 T reveal', thickness: 12 },
+    openings: [{ edge: 1, offset: 1000, width: 900, height: 2100, reveal: 200, tag: 'DR-12 T door' },
+      { edge: 3, offset: 1000, width: 1200, height: 1200, sill: 900, reveal: 150, tag: 'WN-11 T window' }] });
+  const t16 = await must('interior_takeoff', {});
+  const q16 = (t) => t16.rows.find((x) => x.tag === t) || {};
+  const warn16 = (t) => (q16(t).warnings || []).join(' ');
+  check('1.6 stepped ceiling as a single skin: 20.00 flat (was 9.36) + 3.96 of drops = 23.96', near(q16('CL-11 T skin').main_m2, 20, 0.01)
+    && near(q16('CL-11 T skin').vertical_m2, 3.96, 0.01) && near(q16('CL-11 T skin').quantity, 23.96, 0.01) && near(q16('CL-11 T skin').plan_area_m2, 20, 0.01),
+  JSON.stringify(q16('CL-11 T skin')));
+  check('1.6 the same ceiling as a solid: 20.00 + 3.96; its outer sides (no room around) are not counted', near(q16('CL-12 T solid').quantity, 23.96, 0.01)
+    && near(q16('CL-12 T solid').main_m2, 20, 0.01), JSON.stringify(q16('CL-12 T solid')));
+  check('1.6 stair of boards: treads 4.05 + risers 2.72 = 6.77', near(q16('FL-11 T stair boards').main_m2, 4.05, 0.01) && near(q16('FL-11 T stair boards').quantity, 6.77, 0.01),
+    JSON.stringify(q16('FL-11 T stair boards')));
+  check('1.6 stair as one solid: treads 4.05 + risers 2.55 = 6.60 (soffit left out; the flanks reported, not included)', near(q16('FL-12 T stair solid').main_m2, 4.05, 0.01)
+    && near(q16('FL-12 T stair solid').quantity, 6.6, 0.01) && /exposed vertical sides taller than 400 mm/.test(warn16('FL-12 T stair solid')), JSON.stringify(q16('FL-12 T stair solid')));
+  check('1.6 wall skin with a niche: 10.80 (was 1.50) + niche sides 1.25 = 12.05, the niche is not an opening', near(q16('WL-11 T niche').main_m2, 10.8, 0.01)
+    && near(q16('WL-11 T niche').reveals_m2, 1.25, 0.01) && near(q16('WL-11 T niche').quantity, 12.05, 0.01) && q16('WL-11 T niche').openings === 0, JSON.stringify(q16('WL-11 T niche')));
+  check('1.6 wall with a door and a small hole: gross 10.80 - 2.09 (2 openings) = 8.71', near(q16('WL-12 T holes').gross_m2, 10.8, 0.01) && near(q16('WL-12 T holes').deducted_m2, 2.09, 0.01)
+    && q16('WL-12 T holes').openings === 2 && near(q16('WL-12 T holes').quantity, 8.71, 0.01), JSON.stringify(q16('WL-12 T holes')));
+  check('1.6 a door standing in an uncut wall is reported', /NOT deducted/.test(warn16('WL-13 T uncut')) && /T6 door/.test(warn16('WL-13 T uncut')), warn16('WL-13 T uncut'));
+  check('1.6 skirting up a stair: 4.72 m along the slope (was 4.00)', near(q16('SK-11 T raked').quantity, 4.72, 0.01), JSON.stringify(q16('SK-11 T raked')));
+  check('1.6 skirting with two 200 mm returns: 4.40 m (was 4.00)', near(q16('SK-12 T returns').quantity, 4.4, 0.01), JSON.stringify(q16('SK-12 T returns')));
+  check('1.6 skirting on both faces of a wall end: 0.6 + 0.6 + 0.1 = 1.30 m (was 0.70); a board and its cap still count once (3.00)',
+    near(q16('SK-13 T nib').quantity, 1.3, 0.01) && near(q16('SK-14 T cap').quantity, 3, 0.01), JSON.stringify([q16('SK-13 T nib').quantity, q16('SK-14 T cap').quantity]));
+  check('1.6 casing wrapped round a column: every face once, 4.32 m2 (was left out)', near(q16('WL-16 T casing').quantity, 4.32, 0.01) && /wrapped surface/.test(warn16('WL-16 T casing')),
+    JSON.stringify(q16('WL-16 T casing')));
+  check('1.6 the same board drawn twice is reported', /counted twice/.test(warn16('FL-13 T twice')), warn16('FL-13 T twice'));
+  check('1.6 floor with a platform: 20 + 1 on top, + its 4 fronts 300 high = 22.20', near(q16('FL-14 T floor').main_m2, 21, 0.01) && near(q16('FL-14 T floor').quantity, 22.2, 0.01),
+    JSON.stringify(q16('FL-14 T floor')));
+  check('1.6 box bulkhead in a room: underside 3.00 + the one side looking into the room 1.50 = 4.50', near(q16('CL-14 T box').quantity, 4.5, 0.01), JSON.stringify(q16('CL-14 T box')));
+  check('1.6 stepped solid ceiling inside the room: 23.96 (sides against the room edge not counted)', near(q16('CL-13 T ceiling').quantity, 23.96, 0.01), JSON.stringify(q16('CL-13 T ceiling')));
+  // reveals of create_room: door 2 x 0.2 x 2.1 + 0.2 x 0.876; window 2 x 0.15 x 1.2 + 2 x 0.15 x 1.176 = 1.728; wall 14 x 2.7 - 1.89 - 1.44 = 34.47
+  check('1.6 create_room reveals: jambs, head and sill built and measured (wall 34.47 + reveals 1.73 = 36.20), same as its own figures',
+    near(rv.quantities.reveal_area_m2, 1.728, 0.002) && near(q16('WL-15 T reveal').main_m2, 34.47, 0.01) && near(q16('WL-15 T reveal').reveals_m2, 1.73, 0.01)
+    && near(q16('WL-15 T reveal').quantity, 36.2, 0.01) && !(t16.checks || []).some((c) => c.includes('T reveal')), JSON.stringify([rv.quantities, q16('WL-15 T reveal'), t16.checks]));
+  check('1.6 the rooms create_room built measure what it reported (no difference in the cross-checks)', !(t16.checks || []).some((c) => /create_room built/.test(c)), JSON.stringify(t16.checks));
+  const tvn = await must('interior_takeoff', { rules: 'vn' });
+  const wvn = tvn.rows.find((x) => x.tag === 'WL-12 T holes') || {};
+  check('1.6 rules=vn: the 0.2 m2 hole is not deducted (8.910), the door is (1.890), 3 decimals', near(wvn.quantity, 8.91, 0.001) && near(wvn.deducted_m2, 1.89, 0.001)
+    && wvn.not_deducted === 1 && tvn.rules.decimals === 3, JSON.stringify(wvn));
+  const tmain = await must('interior_takeoff', { surfaces: 'main' });
+  check('1.6 surfaces=main: the flat figures only (ceiling 20.00, stair boards 4.05 + board edges)', near((tmain.rows.find((x) => x.tag === 'CL-11 T skin') || {}).quantity, 20, 0.01)
+    && (tmain.rows.find((x) => x.tag === 'FL-11 T stair boards') || {}).quantity < 5, JSON.stringify(tmain.rows.filter((x) => /T skin|T stair boards/.test(x.tag)).map((x) => [x.tag, x.quantity])));
+  const cd16 = await must('check_design', { checks: ['ceiling_height'] });
+  check('1.6 ceiling height from the real levels: the platform does not raise the floor, the bulkhead does not lower the main ceiling (no issue in T room)',
+    !cd16.issues.some((i) => i.room === 'T room'), JSON.stringify(cd16.issues.filter((i) => i.room === 'T room')));
+  const cd17 = await must('check_design', { checks: ['ceiling_height'], limits: { min_ceiling_height_mm: 2900, min_local_height_mm: 2300 } });
+  const tr = cd17.issues.filter((i) => i.room === 'T room');
+  check('1.6 ceiling height: main ceiling 2800 against 2900, lowest part (the box bulkhead) 2200 against 2300', tr.some((i) => i.check === 'ceiling_height' && i.value_mm === 2800)
+    && tr.some((i) => i.check === 'ceiling_height_local' && i.value_mm === 2200), JSON.stringify(tr));
+  await must('set_view', { view: 'iso' });
+  await shot('real_surfaces');
+
   // ---------------------------------------------------------------- regression: scenes and checks still work
   const sc = await must('create_scenes', { kinds: ['plan', 'ceiling', 'elevations'] });
-  check('create_scenes: plan, ceiling plan and the 4 elevations of the two rooms', sc.scenes.length === 10 && sc.ceiling_style, JSON.stringify(sc.scenes.map((x) => x.name)));
+  check('create_scenes: plan, ceiling plan and the 4 elevations of the four rooms', sc.scenes.length === 18 && sc.ceiling_style, JSON.stringify(sc.scenes.map((x) => x.name)));
   const cm = await must('check_model', {});
   check('check_model runs', Array.isArray(cm.issues), cm && JSON.stringify(cm.counts));
   const cd = await must('check_design', {});

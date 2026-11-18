@@ -16,7 +16,7 @@ require 'fileutils'
 
 module KhuongDoan
   module SuMcp
-    VERSION      = '1.5.0'.freeze
+    VERSION      = '1.6.0'.freeze
     HOST         = '127.0.0.1'.freeze
     DEFAULT_PORT = 9876
     IN_TO_MM     = 25.4
@@ -731,7 +731,13 @@ module KhuongDoan
       max_t = 600.0 unless max_t > 0
       ctx = { 'hidden' => p['include_hidden'] ? true : false, 'ratio' => ratio, 'max_t' => max_t.mm, 'rows' => {},
               'codes' => {}, 'exclude' => Array(p['exclude_codes']).map { |c| c.to_s.upcase }, 'excluded' => Hash.new(0),
-              'untagged' => {}, 'skipped' => {}, 'shown' => {}, 'wrap' => {}, 'holds' => {}, 'pure' => {}, 'runs' => {} }
+              'untagged' => {}, 'skipped' => {}, 'shown' => {}, 'wrap' => {}, 'holds' => {}, 'pure' => {}, 'runs' => {},
+              # openings smaller than this (m2) are reported as "small": the server keeps them in the quantity
+              'min_ded' => [p['min_deduction_m2'].to_f, 0.0].max, 'detail' => p['detail'] ? true : false,
+              # codes measured as surfaces (nil = every tag); codes of the doors and windows looked for in uncut walls
+              'real_codes' => p['real_codes'].is_a?(Array) ? p['real_codes'].map { |c| c.to_s.upcase } : nil,
+              'open_codes' => Array(p['opening_codes']).map { |c| c.to_s.upcase },
+              'rays' => 0, 'boxes' => {}, 'walls' => [], 'doors' => [], 'room_recs' => {} }
       sel = p['selection_only'] ? true : false
       roots = sel ? model.selection.to_a : model.entities.to_a
       raise ArgumentError, 'selection_only=true but nothing is selected' if sel && roots.empty?
@@ -757,13 +763,18 @@ module KhuongDoan
       end
       mt_walk(roots, tr, key, counted, ctx, nil, room, nil, false, nil, true)
       mt_finish_runs(ctx)
+      mt_uncut(ctx)
       # rows are kept per [tag, room]; the per-tag rows add up the rooms
       per_tag = {}
       ctx['rows'].each { |(tag, _room), a| mt_merge(per_tag[tag] ||= mt_new, a) }
       order = lambda { |k| [k == 'Untagged' ? 1 : 0, k] }
       r = { 'tags' => per_tag.keys.sort_by(&order).map { |k| mt_out(per_tag[k]).merge('tag' => k) },
             'untagged' => ctx['untagged'].values, 'hidden' => ctx['skipped'].values, 'excluded' => ctx['excluded'],
-            'thin_ratio' => ratio, 'max_thickness_mm' => max_t, 'selection_only' => sel }
+            'thin_ratio' => ratio, 'max_thickness_mm' => max_t, 'selection_only' => sel,
+            'min_deduction_m2' => ctx['min_ded'], 'exposure_tests' => [ctx['rays'], MAX_RAYS].min,
+            'exposure_tests_skipped' => [ctx['rays'] - MAX_RAYS, 0].max,
+            # what create_room worked out for the rooms it built (a cross-check for the measured quantities)
+            'room_records' => ctx['room_recs'].map { |name, q| q.merge('room' => name) } }
       if p['by_room']
         r['rooms'] = ctx['rows'].keys.sort_by { |(t, rm)| [rm, order.call(t)] }.map do |(t, rm)|
           mt_out(ctx['rows'][[t, rm]]).merge('tag' => t, 'room' => rm)
@@ -772,14 +783,16 @@ module KhuongDoan
       r
     end
 
-    MT_SUMS = %w[plan sheet wall side length elev volume count not_solid loose_faces].freeze
-    MT_LISTS = %w[not_thin not_upright uneven not_straight].freeze
+    MT_AREAS = %w[plan sheet wall side length elev volume up down rise_up rise_down box_low box_tall reveal
+                  op_a op_sa ow_a ow_sa os_a os_sa].freeze
+    MT_SUMS = (MT_AREAS + %w[count not_solid loose_faces op_n op_sn ow_n ow_sn os_n os_sn overlap_n uncut_n]).freeze
+    MT_LISTS = %w[not_thin not_upright uneven not_straight wrapped overlap uncut].freeze
 
     def self.mt_new
-      h = { 'items' => Hash.new(0), 'nested' => Hash.new(0), 'ids' => [] }
+      h = { 'items' => Hash.new(0), 'nested' => Hash.new(0), 'ids' => [], 'pieces' => [] }
       MT_LISTS.each { |k| h[k] = [] }
       MT_SUMS.each { |k| h[k] = 0 }
-      %w[plan sheet wall side length elev volume].each { |k| h[k] = 0.0 }
+      MT_AREAS.each { |k| h[k] = 0.0 }
       h
     end
 
@@ -789,6 +802,7 @@ module KhuongDoan
       a['nested'].each { |n, c| to['nested'][n] += c }
       MT_LISTS.each { |k| to[k] = (to[k] + a[k]).first(10) }
       to['ids'] = (to['ids'] + a['ids']).first(50)
+      to['pieces'] = (to['pieces'] + a['pieces']).first(300)
       to
     end
 
@@ -800,7 +814,20 @@ module KhuongDoan
         'elevation_area_m2' => a['elev'].round(4), 'volume_m3' => a['volume'].round(6),
         'not_solid' => a['not_solid'], 'not_thin' => a['not_thin'], 'not_upright' => a['not_upright'],
         'uneven_sides' => a['uneven'], 'not_straight' => a['not_straight'], 'loose_faces' => a['loose_faces'],
-        'ids' => a['ids'] }
+        'ids' => a['ids'],
+        # real surfaces: faces looking up / down (board edges left out), the vertical faces between two levels of the
+        # upper / lower side, exposed sides (up to 400 mm high / taller), returns and reveals of upright pieces
+        'up_area_m2' => a['up'].round(4), 'down_area_m2' => a['down'].round(4),
+        'rise_up_m2' => a['rise_up'].round(4), 'rise_down_m2' => a['rise_down'].round(4),
+        'sides_low_m2' => a['box_low'].round(4), 'sides_tall_m2' => a['box_tall'].round(4), 'reveal_m2' => a['reveal'].round(4),
+        # openings found in the pieces behind each area (all of them, and the ones under min_deduction_m2)
+        'openings' => { 'plan' => mt_open(a, 'op'), 'wall' => mt_open(a, 'ow'), 'sheet' => mt_open(a, 'os') },
+        'wrapped' => a['wrapped'], 'overlaps' => a['overlap'], 'overlap_n' => a['overlap_n'],
+        'uncut' => a['uncut'], 'uncut_n' => a['uncut_n'] }.merge(a['pieces'].empty? ? {} : { 'pieces' => a['pieces'] })
+    end
+
+    def self.mt_open(a, pfx)
+      { 'n' => a["#{pfx}_n"], 'area_m2' => a["#{pfx}_a"].round(4), 'small_n' => a["#{pfx}_sn"], 'small_area_m2' => a["#{pfx}_sa"].round(4) }
     end
 
     def self.mt_acc(ctx, key, room)
@@ -905,7 +932,17 @@ module KhuongDoan
           # not a BOQ item: a named one is a room (a level when it only holds rooms), unless it is a part of an
           # untagged assembly; any other one is transparent
           if !nm.empty? && (room.empty? || pure) && (culprit.nil? || mt_holds_code?(defn, ctx))
-            mt_walk(defn.entities, wt, nil, counted, ctx, e, room.empty? ? nm : "#{room} / #{nm}", nil, false, nil,
+            rname = room.empty? ? nm : "#{room} / #{nm}"
+            rec = e.get_attribute('su_mcp', 'room_q')
+            if rec.is_a?(String) && !ctx['room_recs'].key?(rname)
+              q = begin
+                JSON.parse(rec)
+              rescue StandardError
+                nil
+              end
+              ctx['room_recs'][rname] = q if q.is_a?(Hash)
+            end
+            mt_walk(defn.entities, wt, nil, counted, ctx, e, rname, nil, false, nil,
                     mt_pure?(defn, ctx))
           else
             mt_walk(defn.entities, wt, nil, counted, ctx, e, room, ekey == 'Untagged' ? (culprit || e) : culprit,
@@ -1027,6 +1064,9 @@ module KhuongDoan
       # (a rotated curtain, or one drawn flat and stood up, keeps its real size).
       bb = e.definition.bounds
       return if bb.empty?
+      if ctx['open_codes'].include?(mt_code(key, ctx)) && ctx['doors'].size < 2000
+        ctx['doors'] << { 'c' => bb.center.transform(wt), 'id' => e.entityID, 'name' => name, 'tag' => key }
+      end
       m = wt.to_a
       cols = [[m[0], m[1], m[2]], [m[4], m[5], m[6]], [m[8], m[9], m[10]]]
       sizes = []
@@ -1042,6 +1082,139 @@ module KhuongDoan
       a['elev'] += width * sizes[hax] * IN2_TO_M2
     end
 
+    STRIP_W    = 30 / 25.4  # a face narrower than 30 mm is the edge of a board, not a finished surface
+    FASCIA_LOW = 400 / 25.4 # an exposed side up to 400 mm high is a riser (a platform), a taller one a fascia or a flank
+    NEAR       = 50 / 25.4  # something within 50 mm in front of a face hides it
+    RUN_PACK   = 30 / 25.4  # two parts of a run at the same height are one only when packed this close
+    MAX_RAYS   = 4000       # exposure tests per takeoff
+
+    # The faces of a piece turned one consistent way (as Orient Faces does), whatever way each was drawn: +1 / -1 per
+    # face, following the edges two of its faces share, from the largest face of each connected part.
+    def self.mt_orient(faces, idx, areas)
+      sgn = Array.new(faces.size)
+      (0...faces.size).sort_by { |i| -areas[i] }.each do |s|
+        next if sgn[s]
+        sgn[s] = 1
+        q = [s]
+        until q.empty?
+          i = q.pop
+          f = faces[i]
+          f.edges.each do |e|
+            fs = e.faces.select { |x| idx.key?(x) }
+            next unless fs.size == 2
+            g = fs[0] == f ? fs[1] : fs[0]
+            j = idx[g]
+            next if sgn[j]
+            sgn[j] = e.reversed_in?(f) != e.reversed_in?(g) ? sgn[i] : -sgn[i]
+            q << j
+          end
+        end
+      end
+      sgn
+    end
+
+    # The edge of a board (or of any thin part): a face narrower than STRIP_W and much longer than wide. 2 x area /
+    # perimeter is the width of a long face; a small square face (a mosaic tile) is not an edge.
+    def self.mt_strip?(area, per)
+      return true if per <= 0
+      w = 2 * area / per
+      w < STRIP_W && per / 2.0 - w > 3.5 * w
+    end
+
+    # Indexes of the faces of the piece that share an edge with face i.
+    def self.mt_neighbours(faces, idx, i)
+      out = []
+      faces[i].edges.each do |e|
+        e.faces.each do |g|
+          j = idx[g]
+          out << j if j && j != i
+        end
+      end
+      out.uniq
+    end
+
+    # Does the face look into a room on the side `w` points to (world vector)? Two rays: from a point of the face
+    # outwards - something within NEAR, or the back of a face (the ray started inside a solid standing against the
+    # face), hides it; then down from the space in front of it - with nothing below (no floor: the thickness of a wall
+    # that is not modelled, outside the room) it does not look into a room. An open piece is tried both ways.
+    def self.mt_exposed?(f, tr, w, both, ctx)
+      return false if (ctx['rays'] += 1) > MAX_RAYS
+      mesh = f.mesh(0)
+      pts = mesh.polygon_points_at(1)
+      return false unless pts && pts.size >= 3
+      c = Geom::Point3d.new((pts[0].x + pts[1].x + pts[2].x) / 3.0, (pts[0].y + pts[1].y + pts[2].y) / 3.0,
+                            (pts[0].z + pts[1].z + pts[2].z) / 3.0).transform(tr)
+      (both ? [w, w.reverse] : [w]).any? do |dir|
+        hit = model.raytest([c.offset(dir, 1.mm), dir], true)
+        if hit
+          next false if hit[0].distance(c) < NEAR
+          ent = hit[1].last
+          if ent.is_a?(Sketchup::Face)
+            t = IDENTITY
+            hit[1][0...-1].each { |x| t = t * x.transformation if x.respond_to?(:transformation) }
+            next false if dot(ent.normal.transform(t), dir) > 0.2
+          end
+        end
+        !model.raytest([c.offset(dir, NEAR + 10.mm), Geom::Vector3d.new(0, 0, -1)], true).nil?
+      end
+    rescue StandardError
+      false
+    end
+
+    # Area (square inches) of a loop, from the world positions of its vertices.
+    def self.mt_loop_area(lp, pos)
+      pts = lp.vertices.map { |vx| pos[vx] }
+      nx = ny = nz = 0.0
+      pts.each_with_index do |p, i|
+        q = pts[(i + 1) % pts.size]
+        nx += (p.y - q.y) * (p.z + q.z)
+        ny += (p.z - q.z) * (p.x + q.x)
+        nz += (p.x - q.x) * (p.y + q.y)
+      end
+      Math.sqrt(nx * nx + ny * ny + nz * nz) / 2.0
+    end
+
+    # Openings cut into an edge of a piece (a door in a wall, a recess at the side of a floor): the parts of its outline
+    # that leave one side of the piece's box and come back to the same side. Square inches. A bite out of a corner
+    # (it ends on another side) is not taken for an opening: the piece may simply be L-shaped.
+    def self.mt_notches(lp, pos, u, v, lo1, hi1, lo2, hi2)
+      pts = lp.vertices.map { |vx| q = pos[vx]; [dot(q, u), dot(q, v)] }
+      m = pts.size
+      return [] if m < 6
+      area2 = 0.0
+      m.times { |i| p = pts[i]; q = pts[(i + 1) % m]; area2 += p[0] * q[1] - q[0] * p[1] }
+      pts.reverse! if area2 < 0 # counter-clockwise from here on
+      tol = FLAT_TOL
+      sides = [lambda { |p| (p[1] - lo2).abs < tol }, lambda { |p| (p[1] - hi2).abs < tol },
+               lambda { |p| (p[0] - lo1).abs < tol }, lambda { |p| (p[0] - hi1).abs < tol }]
+      out = []
+      sides.each do |side|
+        flags = pts.map { |p| side.call(p) }
+        next unless flags.any?
+        m.times do |i|
+          next unless flags[i] && !flags[(i + 1) % m]
+          j = (i + 1) % m
+          steps = 1
+          while !flags[j] && steps < m
+            j = (j + 1) % m
+            steps += 1
+          end
+          next unless flags[j] && steps < m
+          # the outline from i to j, closed along the side: clockwise = outside the piece = a notch
+          s = 0.0
+          k = i
+          while true
+            nx = k == j ? i : (k + 1) % m
+            s += pts[k][0] * pts[nx][1] - pts[nx][0] * pts[k][1]
+            break if k == j
+            k = (k + 1) % m
+          end
+          out << -s / 2.0 if s < -1e-6
+        end
+      end
+      out
+    end
+
     # One piece: faces with the same tag in one container that share edges. standalone = the faces carry their
     # own tag (outside any tagged object), so they also add width x height and count as loose faces.
     # obj = the counted object holding the piece: its straight runs are merged at the end (mt_finish_runs).
@@ -1051,45 +1224,100 @@ module KhuongDoan
       areas = faces.map { |f| f.area(tr) * IN2_TO_M2 }
       normals = faces.map { |f| world_normal(f, tr, pos) }
       faces.each { |f| f.vertices.each { |vx| pos[vx] ||= vx.position.transform(tr) } }
+      idx = {}
+      faces.each_with_index { |f, i| idx[f] = i }
+      # closed piece: every edge is shared by two of its faces (a board, a wall solid)
+      uses = Hash.new(0)
+      faces.each { |f| f.edges.each { |e2| uses[e2] += 1 } }
+      closed = !uses.empty? && uses.values.all? { |c| c >= 2 }
+      # board edges: 2 x area / perimeter is the width of a long narrow face
+      strip = faces.each_with_index.map do |f, i|
+        mt_strip?(areas[i] / IN2_TO_M2, f.edges.inject(0.0) { |s, e2| s + pos[e2.start].distance(pos[e2.end]) }) &&
+          mt_neighbours(faces, idx, i).none? { |j| dot(normals[i], normals[j]).abs > 0.5 }
+      end
+      # one consistent orientation: outwards for a closed piece (its volume is positive); for an open piece with faces
+      # looking both up and down (a board without its edges) the upper faces look up
+      sgn = mt_orient(faces, idx, areas)
+      vol = 0.0
+      two_layer = false
+      if closed
+        cnt0 = pos.size.to_f
+        mx = pos.values.inject(0.0) { |s, q| s + q.x } / cnt0
+        my = pos.values.inject(0.0) { |s, q| s + q.y } / cnt0
+        mz = pos.values.inject(0.0) { |s, q| s + q.z } / cnt0
+        faces.each_with_index do |f, i|
+          q = pos[f.vertices.first]
+          w = normals[i]
+          vol += sgn[i] * (areas[i] / IN2_TO_M2) * ((q.x - mx) * w.x + (q.y - my) * w.y + (q.z - mz) * w.z) / 3.0
+        end
+        if vol < 0
+          sgn = sgn.map { |s| -s }
+          vol = -vol
+        end
+      else
+        zu = zd = au = ad = 0.0
+        faces.each_with_index do |f, i|
+          next if strip[i]
+          wz = sgn[i] * normals[i].z
+          next if wz.abs <= 0.17
+          zm = f.vertices.inject(0.0) { |s, vx| s + pos[vx].z } / f.vertices.size
+          if wz > 0
+            zu += zm * areas[i]
+            au += areas[i]
+          else
+            zd += zm * areas[i]
+            ad += areas[i]
+          end
+        end
+        # two layers of about the same size (a board without its edges); a skin with a small ledge is one surface
+        two_layer = au > 0 && ad > 0 && [au, ad].min >= 0.5 * [au, ad].max
+        sgn = sgn.map { |s| -s } if two_layer && zu / au < zd / ad - FLAT_TOL
+      end
+      normals = normals.each_with_index.map { |w, i| sgn[i] < 0 ? w.reverse : w }
       big = (0...faces.size).max_by { |i| areas[i] }
       n = normals[big]
-      if n.z.abs < 0.98
-        u = n.cross(Geom::Vector3d.new(0, 0, 1)).normalize
-      else
-        # (near) horizontal: along its longest edge, kept in the face plane
-        ed = faces[big].edges.max_by { |x| x.length }
-        d = (pos[ed.end] ||= ed.end.position.transform(tr)) - (pos[ed.start] ||= ed.start.position.transform(tr))
-        k = dot(d, n)
-        d = Geom::Vector3d.new(d.x - n.x * k, d.y - n.y * k, d.z - n.z * k)
-        u = d.length > 0 ? d.normalize : Geom::Vector3d.new(1, 0, 0)
-      end
+      # ud: along the longest edge of the largest face, in its plane; u: horizontal for anything not lying flat
+      ed = faces[big].edges.max_by { |x| pos[x.start].distance(pos[x.end]) }
+      d = pos[ed.end] - pos[ed.start]
+      k = dot(d, n)
+      d = Geom::Vector3d.new(d.x - n.x * k, d.y - n.y * k, d.z - n.z * k)
+      ud = d.length > 0 ? d.normalize : Geom::Vector3d.new(1, 0, 0)
+      u = n.z.abs < 0.98 ? n.cross(Geom::Vector3d.new(0, 0, 1)).normalize : ud
       v = n.cross(u).normalize
-      nx = n.x; ny = n.y; nz = n.z; ux = u.x; uy = u.y; uz = u.z; vx_ = v.x; vy = v.y; vz = v.z
-      lo0 = lo1 = lo2 = zmin = nil
-      hi0 = hi1 = hi2 = zmax = nil
+      vd = n.cross(ud).normalize
+      lo = Array.new(5)
+      hi = Array.new(5)
+      xmin = xmax = ymin = ymax = zmin = zmax = nil
+      sx = sy = sz = 0.0
+      axes = [n, u, v, ud, vd]
       pos.each_value do |q|
-        s0 = q.x * nx + q.y * ny + q.z * nz
-        s1 = q.x * ux + q.y * uy + q.z * uz
-        s2 = q.x * vx_ + q.y * vy + q.z * vz
-        lo0 = s0 if lo0.nil? || s0 < lo0
-        hi0 = s0 if hi0.nil? || s0 > hi0
-        lo1 = s1 if lo1.nil? || s1 < lo1
-        hi1 = s1 if hi1.nil? || s1 > hi1
-        lo2 = s2 if lo2.nil? || s2 < lo2
-        hi2 = s2 if hi2.nil? || s2 > hi2
+        5.times do |i|
+          s = q.x * axes[i].x + q.y * axes[i].y + q.z * axes[i].z
+          lo[i] = s if lo[i].nil? || s < lo[i]
+          hi[i] = s if hi[i].nil? || s > hi[i]
+        end
+        xmin = q.x if xmin.nil? || q.x < xmin
+        xmax = q.x if xmax.nil? || q.x > xmax
+        ymin = q.y if ymin.nil? || q.y < ymin
+        ymax = q.y if ymax.nil? || q.y > ymax
         zmin = q.z if zmin.nil? || q.z < zmin
         zmax = q.z if zmax.nil? || q.z > zmax
+        sx += q.x
+        sy += q.y
+        sz += q.z
       end
+      lo0 = lo[0]
+      hi0 = hi[0]
+      lo1 = lo[1]
+      hi1 = hi[1]
+      lo2 = lo[2]
+      hi2 = hi[2]
       t = hi0 - lo0
       su = hi1 - lo1
       sv = hi2 - lo2
       flat = t < FLAT_TOL
       thin = flat || (t <= ctx['ratio'] * [su, sv].min && t <= ctx['max_t'])
       upright = n.z.abs < 0.17
-      # closed piece: every edge is shared by two of its faces (a board, a wall solid)
-      uses = Hash.new(0)
-      faces.each { |f| f.edges.each { |e2| uses[e2] += 1 } }
-      closed = !uses.empty? && uses.values.all? { |c| c >= 2 }
       nonvert = side = horiz = 0.0
       curved = false
       par = []
@@ -1106,46 +1334,214 @@ module KhuongDoan
         horiz += ar * Math.sqrt(w.x * w.x + w.y * w.y)
         par << [ar, c, dot(pos[f.vertices.first], n)] if c.abs > 0.99
       end
-      # the two sides of the piece: by the direction of the face normals (a pilaster or a niche on one side
-      # stays on its side); faces all turned the same way (reversed faces): by their position
+      # the two sides of the piece, by the direction its faces look (a pilaster or a niche on one side stays on its
+      # side); a single skin has one side only, however its faces were drawn
       side_a = side_b = 0.0
-      if par.any? { |x| x[1] > 0 } && par.any? { |x| x[1] < 0 }
-        par.each { |ar, c, _| c > 0 ? side_a += ar : side_b += ar }
-      else
+      par.each { |ar, c, _| c > 0 ? side_a += ar : side_b += ar }
+      if closed && !flat && (side_a.zero? || side_b.zero?)
+        side_a = side_b = 0.0
         mid = (lo0 + hi0) / 2.0
-        par.each { |ar, _, off| flat || off < mid ? side_a += ar : side_b += ar }
+        par.each { |ar, _, off| off < mid ? side_a += ar : side_b += ar }
       end
-      one = flat || side_a.zero? || side_b.zero? ? side_a + side_b : [side_a, side_b].min
+      one_sided = flat || side_a.zero? || side_b.zero?
+      one = one_sided ? side_a + side_b : [side_a, side_b].min
       label = lambda do
         { 'id' => owner ? owner.entityID : nil, 'name' => owner ? utf8(owner.name) : '(faces at the top level)',
-          'size_mm' => [su, sv, t].map { |d| to_mm(d).round } }
+          'size_mm' => [su, sv, t].map { |x| to_mm(x).round } }
       end
-      if thin && !upright && !curved && side_a + side_b >= 0.9 * nonvert
+      in_plan = thin && !upright && !curved && side_a + side_b >= 0.9 * nonvert
+      if in_plan
         a['plan'] += one
       else
         a['plan'] += closed ? nonvert / 2.0 : nonvert
       end
       a['side'] += side
-      # length: a straight run its longest size; a run that turns (Follow Me around a room) its swept length,
-      # i.e. the horizontal part of its face areas / (2 x its height)
+
+      # ---- the real surfaces, whatever the piece is: faces looking up / down, and the vertical faces between two levels
+      # of the same side (risers, the drop of a stepped ceiling). A vertical face between the upper and the lower side
+      # is an edge of the piece: counted only when nothing hides it (the fascia of a box bulkhead, a platform front).
+      code = mt_code(key, ctx)
+      surf = ctx['real_codes'].nil? || code.nil? || ctx['real_codes'].include?(code) # not for furniture, lights...
+      cls = faces.each_index.map do |i|
+        if !surf || strip[i] then nil
+        elsif normals[i].z > 0.17 then :u
+        elsif normals[i].z < -0.17 then :d
+        else :v
+        end
+      end
+      up = down = ru = rd = box_low = box_tall = 0.0
+      res = {}
+      pend = []
+      faces.each_index do |i|
+        if cls[i] == :u
+          up += areas[i]
+        elsif cls[i] == :d
+          down += areas[i]
+        elsif cls[i] == :v
+          nb = mt_neighbours(faces, idx, i).map { |j| cls[j] }
+          hu = nb.include?(:u)
+          hd = nb.include?(:d)
+          if hu && hd
+            next if thin && upright
+            zs = faces[i].vertices.map { |vx| pos[vx].z }
+            if mt_exposed?(faces[i], tr, normals[i], !closed, ctx)
+              zs.max - zs.min <= FASCIA_LOW ? box_low += areas[i] : box_tall += areas[i]
+            end
+          elsif hu
+            res[i] = :u
+          elsif hd
+            res[i] = :d
+          else
+            pend << i
+          end
+        end
+      end
+      pend.each do |i| # touching only other vertical faces: like the returns it touches
+        got = mt_neighbours(faces, idx, i).map { |j| res[j] }.compact.uniq
+        res[i] = got.first if got.size == 1
+      end
+      res.each { |i, s| s == :u ? ru += areas[i] : rd += areas[i] }
+      if !closed && !two_layer # a single skin: the same surface whichever way it looks
+        up = down = up + down
+        ru = rd = ru + rd
+      end
+      a['up'] += up
+      a['down'] += down
+      a['rise_up'] += ru
+      a['rise_down'] += rd
+      a['box_low'] += box_low
+      a['box_tall'] += box_tall
+
+      # ---- an upright piece (a wall): its returns and reveals, i.e. the faces across it between two levels of one side
+      # (a niche, a pilaster, a panel wrapped into an opening), and its free ends and jambs when nothing hides them
+      reveal = 0.0
+      if upright && thin && surf
+        clf = faces.each_index.map do |i|
+          next nil if strip[i]
+          c = dot(normals[i], n)
+          c > 0.17 ? :a : (c < -0.17 ? :b : :l)
+        end
+        ra = rb = rt = 0.0
+        resf = {}
+        pendf = []
+        faces.each_index do |i|
+          next unless clf[i] == :l
+          # the underside of the piece itself is never a reveal (the head of an opening is higher up)
+          next if normals[i].z < -0.7 && faces[i].vertices.all? { |vx| pos[vx].z - zmin < FLAT_TOL }
+          next if normals[i].z > 0.7 && faces[i].vertices.all? { |vx| zmax - pos[vx].z < FLAT_TOL }
+          nb = mt_neighbours(faces, idx, i).map { |j| clf[j] }
+          ha = nb.include?(:a)
+          hb = nb.include?(:b)
+          if ha && hb
+            rt += areas[i] if mt_exposed?(faces[i], tr, normals[i], !closed, ctx)
+          elsif ha
+            resf[i] = :a
+          elsif hb
+            resf[i] = :b
+          else
+            pendf << i
+          end
+        end
+        pendf.each do |i|
+          got = mt_neighbours(faces, idx, i).map { |j| resf[j] }.compact.uniq
+          resf[i] = got.first if got.size == 1
+        end
+        resf.each { |i, s| s == :a ? ra += areas[i] : rb += areas[i] }
+        reveal = (one_sided ? ra + rb : [ra, rb].max) + rt
+      end
+      # an open piece that is not a thin board but stands upright (a casing wrapped round a column, two walls of a
+      # corner drawn as one skin): every upright face is finished surface, once
+      wrapped = upright && !thin && !closed
+      wrap = 0.0
+      faces.each_index { |i| wrap += areas[i] if !strip[i] && normals[i].z.abs < 0.17 } if wrapped
+      reveal = 0.0 if wrapped
+      a['reveal'] += reveal
+
+      # ---- openings in the main side of a thin piece: holes (inner loops no face of the piece fills) and notches cut
+      # into an edge; the ones smaller than min_deduction are not deducted (kept in the quantity by the server)
+      ops = []
+      if thin && surf
+        pick = one_sided ? 0 : (side_a <= side_b ? 1 : -1)
+        faces.each_with_index do |f, i|
+          c = dot(normals[i], n)
+          next unless c.abs > 0.99 && (pick.zero? || (c > 0) == (pick > 0))
+          off = dot(pos[f.vertices.first], n)
+          f.loops.each do |lp|
+            next if lp.outer?
+            filled = lp.edges.any? do |e2|
+              e2.faces.any? do |g|
+                j = idx[g]
+                j && j != i && dot(normals[j], normals[i]).abs > 0.99 && (dot(pos[g.vertices.first], n) - off).abs < FLAT_TOL
+              end
+            end
+            # a recess (a niche): another face of the same side lies behind the hole
+            unless filled
+              vs = lp.vertices
+              ctr = Geom::Point3d.new(vs.inject(0.0) { |s, vx| s + vx.position.x } / vs.size,
+                                      vs.inject(0.0) { |s, vx| s + vx.position.y } / vs.size,
+                                      vs.inject(0.0) { |s, vx| s + vx.position.z } / vs.size)
+              filled = faces.each_with_index.any? do |g, j|
+                next false if j == i || dot(normals[j], normals[i]) < 0.99
+                g.classify_point(ctr.project_to_plane(g.plane)) == Sketchup::Face::PointInside
+              end
+            end
+            ops << mt_loop_area(lp, pos) * IN2_TO_M2 unless filled
+          end
+          mt_notches(f.outer_loop, pos, u, v, lo1, hi1, lo2, hi2).each { |x| ops << x * IN2_TO_M2 }
+        end
+        small = ops.select { |x| x < ctx['min_ded'] }
+        targets = ['os']
+        targets << 'op' if in_plan
+        targets << 'ow' if upright && !curved
+        targets.each do |pfx|
+          a["#{pfx}_n"] += ops.size
+          a["#{pfx}_a"] += ops.inject(0.0) { |s, x| s + x }
+          a["#{pfx}_sn"] += small.size
+          a["#{pfx}_sa"] += small.inject(0.0) { |s, x| s + x }
+        end
+      end
+
+      # ---- length: a straight piece its longest size; a board running up a slope (a stair skirting) its side over its
+      # width across the slope; a run that turns (Follow Me round a room, a skirting with returns) the length of its
+      # path, from the outline of its plan (and its plan area, for a solid: path + width = half the outline)
       h = zmax - zmin
       dims = [t, su, sv]
       li = (0..2).max_by { |i| dims[i] }
       len = dims[li]
-      swept = h > FLAT_TOL ? horiz / IN2_TO_M2 / (2 * h) : 0.0
-      straight = !(swept > 1.1 * len) || (thin && upright && !curved)
-      len = swept unless straight
+      ax = [n, u, v][li]
+      rlo = [lo0, lo1, lo2][li]
+      rhi = [hi0, hi1, hi2][li]
+      straight = true
+      board = thin && upright && !curved
+      if board && ud.z.abs > 0.1 && ud.z.abs < 0.995 && hi[4] - lo[4] > FLAT_TOL && hi[3] - lo[3] > 3 * (hi[4] - lo[4])
+        len = one / IN2_TO_M2 / (hi[4] - lo[4])
+        ax = ud
+        rlo = lo[3]
+        rhi = hi[3]
+      elsif !board && h > FLAT_TOL && h <= 0.5 * [xmax - xmin, ymax - ymin].max
+        half = horiz / IN2_TO_M2 / (2 * h)
+        path = if closed && vol > 0
+                 disc = half * half - 4 * vol / h
+                 (half + Math.sqrt([disc, 0.0].max)) / 2.0
+               elsif !closed && nonvert < 0.02 * side
+                 2 * half # a ribbon: one face along the path
+               else
+                 half > 1.1 * len ? half : nil
+               end
+        if path && path > 1.01 * len
+          len = path
+          straight = false
+        end
+      end
+      c0 = Geom::Point3d.new((xmin + xmax) / 2.0, (ymin + ymax) / 2.0, (zmin + zmax) / 2.0)
       if obj && straight
-        ax = [n, u, v][li]
-        lo = [lo0, lo1, lo2][li]
-        hi = [hi0, hi1, hi2][li]
-        c0 = Geom::Point3d.new((pos.values.map(&:x).min + pos.values.map(&:x).max) / 2.0,
-                               (pos.values.map(&:y).min + pos.values.map(&:y).max) / 2.0, (zmin + zmax) / 2.0)
-        (ctx['runs'][[key, room, obj]] ||= []) << [ax, lo, hi, c0, len]
+        (ctx['runs'][[key, room, obj]] ||= []) << [ax, rlo, rhi, c0, len]
       else
         a['length'] += len * IN_TO_MM / 1000.0
       end
-      if thin
+      if thin && owner && owner.get_attribute('su_mcp', 'part') == 'reveal'
+        a['reveal'] += one # a lining create_room put in an opening: a reveal, whichever way it lies
+      elsif thin
         if upright && curved
           one = side / 2.0
           a['not_straight'] << label.call if a['not_straight'].size < 10
@@ -1160,8 +1556,42 @@ module KhuongDoan
            a['uneven'].size < 10
           a['uneven'] << label.call.merge('sides_m2' => [side_a.round(2), side_b.round(2)])
         end
+      elsif wrapped
+        a['sheet'] += wrap
+        a['wall'] += wrap
+        a['wrapped'] << label.call if a['wrapped'].size < 10
       elsif a['not_thin'].size < 10
         a['not_thin'] << label.call
+      end
+
+      # ---- the same piece twice (a finish drawn over another one): same category, same place, same size
+      total = areas.inject(0.0) { |s, x| s + x }
+      if total > 0.02
+        r2 = lambda { |x| (to_mm(x) / 2.0).round }
+        cnt = pos.size.to_f
+        dk = [code || key, r2.call(sx / cnt), r2.call(sy / cnt), r2.call(sz / cnt), r2.call(xmax - xmin),
+              r2.call(ymax - ymin), r2.call(zmax - zmin), faces.size]
+        first = ctx['boxes'][dk]
+        if first
+          a['overlap_n'] += 1
+          a['overlap'] << label.call.merge('on' => first) if a['overlap'].size < 10
+        else
+          ctx['boxes'][dk] = label.call
+        end
+      end
+      # walls remembered for the doors and windows standing in them (mt_uncut)
+      if thin && upright && !curved && one > 0.5 && ctx['walls'].size < 5000 && !ctx['open_codes'].include?(code)
+        ctx['walls'] << { 'acc' => a, 'label' => label.call, 'n' => n, 'lo0' => lo0, 'hi0' => hi0, 'u' => u, 'lo1' => lo1, 'hi1' => hi1,
+                          'v' => v, 'lo2' => lo2, 'hi2' => hi2, 'inv' => tr.inverse,
+                          'faces' => (0...faces.size).select { |i| dot(normals[i], n).abs > 0.99 }.map { |i| [faces[i], dot(pos[faces[i].vertices.first], n)] } }
+      end
+      if ctx['detail'] && a['pieces'].size < 300
+        a['pieces'] << label.call.merge(
+          'upright' => upright, 'thin' => thin, 'closed' => closed, 'one_side_m2' => one.round(4),
+          'openings_m2' => ops.map { |x| x.round(4) }, 'up_m2' => up.round(4), 'down_m2' => down.round(4),
+          'rise_up_m2' => ru.round(4), 'rise_down_m2' => rd.round(4), 'sides_m2' => (box_low + box_tall).round(4),
+          'reveal_m2' => reveal.round(4), 'length_m' => (len * IN_TO_MM / 1000.0).round(4)
+        )
       end
       return unless standalone
       a['loose_faces'] += faces.size
@@ -1169,12 +1599,14 @@ module KhuongDoan
     end
 
     # Straight runs of one object: parallel parts that overlap along their length and lie within RUN_GAP of each
-    # other (a skirting board and its cap) count once, the longest; separate runs are added up.
+    # other count once, the longest, when one sits on the other (a skirting board and its cap, a shoe in front of it:
+    # their heights differ) or is packed against it; two boards side by side at the same height (both faces of a wall
+    # end) are two runs. Separate runs are added up.
     def self.mt_finish_runs(ctx)
       ctx['runs'].each do |(key, room, _obj), runs|
         kept = []
         runs.sort_by { |r| -r[4] }.each do |r|
-          ax, lo, hi, c0, len = r
+          ax, lo, hi, c0 = r
           dup = kept.any? do |k|
             kax, klo, khi, kc = k
             cs = dot(ax, kax)
@@ -1188,12 +1620,40 @@ module KhuongDoan
             next false unless over > 0.5 * [hi - lo, khi - klo].min
             d = c0 - kc
             along = dot(d, kax)
-            perp = Math.sqrt([d.x * d.x + d.y * d.y + d.z * d.z - along * along, 0.0].max)
-            perp < RUN_GAP
+            px = d.x - kax.x * along
+            py = d.y - kax.y * along
+            pz = d.z - kax.z * along
+            next false unless Math.sqrt(px * px + py * py + pz * pz) < RUN_GAP
+            pz.abs > FLAT_TOL * 6 || Math.sqrt(px * px + py * py) < RUN_PACK
           end
           kept << r unless dup
         end
         mt_acc(ctx, key, room)['length'] += kept.inject(0.0) { |s, r| s + r[4] } * IN_TO_MM / 1000.0
+      end
+    end
+
+    # Doors and windows standing in a wall piece that is not cut there: the opening is not deducted from that wall.
+    def self.mt_uncut(ctx)
+      ctx['doors'].each do |dr|
+        c = dr['c']
+        ctx['walls'].each do |w|
+          s0 = dot(c, w['n'])
+          next unless s0 > w['lo0'] - RUN_GAP && s0 < w['hi0'] + RUN_GAP
+          s1 = dot(c, w['u'])
+          s2 = dot(c, w['v'])
+          next unless s1 > w['lo1'] && s1 < w['hi1'] && s2 > w['lo2'] && s2 < w['hi2']
+          inside = w['faces'].any? do |f, off|
+            next false unless f.valid?
+            k = s0 - off
+            q = Geom::Point3d.new(c.x - w['n'].x * k, c.y - w['n'].y * k, c.z - w['n'].z * k).transform(w['inv'])
+            f.classify_point(q) == Sketchup::Face::PointInside
+          end
+          next unless inside
+          list = w['acc']['uncut']
+          list << { 'id' => dr['id'], 'name' => dr['name'], 'tag' => dr['tag'], 'wall' => w['label'] } if list.size < 10
+          w['acc']['uncut_n'] += 1
+          break
+        end
       end
     end
 
@@ -1777,9 +2237,9 @@ module KhuongDoan
     # ------------------------------------------------------------------
     ROOM_WORDS = {
       'en' => { 'floor' => 'floor', 'ceiling' => 'ceiling', 'wall' => 'wall', 'skirting' => 'skirting',
-                'door' => 'door', 'window' => 'window', 'glass' => 'glass', 'opening' => 'opening' },
+                'door' => 'door', 'window' => 'window', 'glass' => 'glass', 'opening' => 'opening', 'reveal' => 'reveals' },
       'vi' => { 'floor' => "sàn", 'ceiling' => "trần", 'wall' => "tường", 'skirting' => 'len',
-                'door' => "cửa", 'window' => "cửa sổ", 'glass' => "vách kính", 'opening' => "ô mở" }
+                'door' => "cửa", 'window' => "cửa sổ", 'glass' => "vách kính", 'opening' => "ô mở", 'reveal' => "má cửa" }
     }.freeze
 
     def self.num(v, name)
@@ -1940,7 +2400,8 @@ module KhuongDoan
         end
         { 'edge' => e, 'from' => [off, 0.0].max, 'to' => [off + w, lens[e]].min, 'sill' => [sill, 0.0].max,
           'top' => [sill + h, height].min, 'kind' => kind, 'tag' => o['tag'].to_s, 'material' => o['material'],
-          'color' => o['color'], 'name' => o['name'], 'given' => o['edge'] }
+          'color' => o['color'], 'name' => o['name'], 'given' => o['edge'],
+          'reveal' => o['reveal'] ? [num(o['reveal'], 'opening reveal'), 0.0].max : 0.0 }
       end
       opens.group_by { |o| o['edge'] }.each_value do |list|
         list.combination(2).each do |x, y|
@@ -1991,7 +2452,7 @@ module KhuongDoan
           end
           skip = lambda { |i| edge_cfg[i] && edge_cfg[i]['none'] }
           if walls
-            gross = net = 0.0
+            gross = net = rev = 0.0
             n.times do |i|
               next if skip.call(i)
               cfg = walls.merge((edge_cfg[i] || {}).reject { |k, v| k == 'none' || v.nil? || v.to_s.empty? })
@@ -2005,11 +2466,32 @@ module KhuongDoan
               else
                 g.erase!
               end
-              gross += lens[i] * wall_h
-              net += lens[i] * wall_h - holes.inject(0.0) { |s, h| s + (h[1] - h[0]) * (h[3] - h[2]) }
+              gross += (lens[i] + ext) * wall_h
+              net += (lens[i] + ext) * wall_h - holes.inject(0.0) { |s, h| s + (h[1] - h[0]) * (h[3] - h[2]) }
+              # reveals: the wall finish turned into the openings that have a reveal depth (jambs, head, and the sill of
+              # an opening above the floor), each lining its own thin board behind the outline
+              lined = opens.select { |o| o['edge'] == i && o['reveal'] > 0.5 && o['sill'] < wall_h - 0.5 && wall_t > 0.5 }
+              next if lined.empty?
+              rg = room_edge_group(ents, pts[i], pts[(i + 1) % n], ffl)
+              lined.each do |o|
+                top = [o['top'], wall_h].min
+                head = o['top'] < height - 0.5 # an opening up to the ceiling has no head
+                boards = [[o['from'], o['from'] + wall_t, o['sill'], top], [o['to'] - wall_t, o['to'], o['sill'], top]]
+                boards << [o['from'] + wall_t, o['to'] - wall_t, top - wall_t, top] if head
+                boards << [o['from'] + wall_t, o['to'] - wall_t, o['sill'], o['sill'] + wall_t] if o['kind'] != 'door' && o['sill'] > 0.5
+                boards.each do |x0, x1, z0, z1|
+                  next unless x1 - x0 > 0.5 && z1 - z0 > 0.5
+                  lining = rg.entities.add_group
+                  lining.set_attribute('su_mcp', 'part', 'reveal') # measured with the reveals, not as a wall
+                  room_panel(lining.entities, x0, x1, z0, z1, -o['reveal'], o['reveal'])
+                  rev += o['reveal'] * [x1 - x0, z1 - z0].max # one face of the lining
+                end
+              end
+              add.call(room_finish(rg, cfg, room_part_name(cfg['tag'], name, "#{words['reveal']} #{given.call(i)}"), styles), 'reveal')
             end
             q['wall_area_gross_m2'] = (gross / 1e6).round(3)
             q['wall_area_net_m2'] = (net / 1e6).round(3)
+            q['reveal_area_m2'] = (rev / 1e6).round(3) if rev > 0
           end
           if skirting
             sh = num(skirting['height'] || 80, 'skirting.height')
@@ -2046,7 +2528,9 @@ module KhuongDoan
             i = o['edge']
             g = room_edge_group(ents, pts[i], pts[(i + 1) % n], ffl)
             th = o['kind'] == 'door' ? 40.0 : 10.0 # door leaf / glass pane, centred in the wall finish
-            room_panel(g.entities, o['from'], o['to'], o['sill'], o['top'], wall_t / 2.0 - th / 2.0, th)
+            lt = o['reveal'] > 0.5 && walls && !skip.call(i) ? wall_t : 0.0 # between the reveal linings
+            room_panel(g.entities, o['from'] + lt, o['to'] - lt, o['sill'] + (o['kind'] != 'door' && o['sill'] > 0.5 ? lt : 0.0),
+                       o['top'] - (o['top'] < height - 0.5 ? lt : 0.0), wall_t / 2.0 - th / 2.0, th)
             label = o['name'].to_s.empty? ? "#{words[o['kind']]} #{k + 1}" : o['name'].to_s
             cfg = o
             if o['kind'] != 'door' && o['material'].to_s.empty? && o['color'].to_s.empty?
@@ -2058,6 +2542,8 @@ module KhuongDoan
             end
             add.call(room_finish(g, cfg, room_part_name(o['tag'], name, label), styles), o['kind'])
           end
+          # what was built, kept on the room: interior_takeoff compares it with what it measures
+          room.set_attribute('su_mcp', 'room_q', JSON.generate(floor ? q : q.reject { |k, _| k == 'floor_area_m2' }))
           { 'room' => entity_summary(room), 'parts' => parts, 'quantities' => q,
             'note' => 'Edges are numbered from 1 (edge 1 goes from point 1 to point 2). The floor finish lies below the ' \
                       'finished floor level, the ceiling board above FFL + height; walls and skirting are inside the outline. ' \
@@ -2958,12 +3444,48 @@ module KhuongDoan
           if box
             label = nm.empty? ? utf8(defn.name) : nm
             ctx['objs'] << box.merge('id' => e.entityID, 'name' => label, 'def' => utf8(defn.name), 'tag' => ekey,
-                                     'code' => mt_code(ekey, ctx), 'room' => eroom, 'path' => anc + [e.entityID])
+                                     'code' => mt_code(ekey, ctx), 'room' => eroom, 'path' => anc + [e.entityID], 'ent' => e, 'wt' => wt)
           end
         end
         # nothing below an item matters unless it holds another tagged item
         next unless mt_holds_code?(defn, ctx)
         dc_walk(defn.entities, wt, ekey, first ? counted + [ekey] : counted, ctx, eroom, culprit, false, anc + [e.entityID], defn)
+      end
+    end
+
+    # Levels of the faces of some objects that look up (sign 1) or down (-1): [{z, area (m2), obj}] with z in inches, faces
+    # within 5 mm of each other being one level. A sloped face counts at its highest (up) or lowest (down) point; board
+    # edges (narrower than STRIP_W) are left out.
+    def self.dc_levels(objs, sign)
+      lv = {}
+      objs.each { |o| dc_level_faces(o['ent'].definition.entities, o['wt'], sign, lv, o, 0) if o['ent'] && o['ent'].valid? }
+      lv.values.map { |e| { 'z' => e[1] / e[0], 'area' => e[0], 'obj' => e[2] } }
+    end
+
+    def self.dc_level_faces(ents, tr, sign, lv, obj, depth)
+      a = tr.to_a
+      mirror = a[0] * (a[5] * a[10] - a[9] * a[6]) - a[4] * (a[1] * a[10] - a[9] * a[2]) + a[8] * (a[1] * a[6] - a[5] * a[2]) < 0
+      ents.each do |x|
+        if x.is_a?(Sketchup::Face)
+          pos = {}
+          wz = world_normal(x, tr, pos).z * (mirror ? -1 : 1)
+          next unless wz * sign > 0.17
+          zs = x.vertices.map { |vx| (pos[vx] ||= vx.position.transform(tr)).z }
+          ar = x.area(tr)
+          per = x.edges.inject(0.0) { |sum, e| sum + (pos[e.start] ||= e.start.position.transform(tr)).distance(pos[e.end] ||= e.end.position.transform(tr)) }
+          next if mt_strip?(ar, per)
+          z = sign > 0 ? zs.max : zs.min
+          e = (lv[(to_mm(z) / 5.0).round] ||= [0.0, 0.0, obj, 0.0])
+          m2 = ar * IN2_TO_M2
+          e[0] += m2
+          e[1] += z * m2
+          if m2 > e[3]
+            e[2] = obj
+            e[3] = m2
+          end
+        elsif mt_container?(x) && !x.hidden? && untagged?(x.layer) && depth < 8 # not a light or a grille tagged apart
+          dc_level_faces(x.definition.entities, tr * x.transformation, sign, lv, obj, depth + 1)
+        end
       end
     end
 
@@ -3012,18 +3534,32 @@ module KhuongDoan
             bare << room
             next
           end
-          ffl = fl.map { |o| o['zmax'] }.max
-          main = cl.max_by { |o| o['plan'][0] * o['plan'][1] }
-          clear = main['zmin'] - ffl
+          # levels of the real surfaces: the floor level is the one most of the floor finish lies at (a stair or a
+          # platform does not raise it), the main ceiling the level most of the ceiling lies at (a bulkhead in the same
+          # group does not lower it), the local height the lowest level of some size
+          fl_lv = dc_levels(fl, 1)
+          fl_lv = dc_levels(fl, -1) if fl_lv.empty? # a floor drawn as faces looking down
+          cl_lv = dc_levels(cl, -1)
+          cl_lv = dc_levels(cl, 1) if cl_lv.empty? # a ceiling drawn as faces looking up
+          if fl_lv.empty? || cl_lv.empty?
+            bare << room
+            next
+          end
+          ffl = fl_lv.max_by { |lv| lv['area'] }['z']
+          total = cl_lv.inject(0.0) { |sum, lv| sum + lv['area'] }
+          main = cl_lv.max_by { |lv| lv['area'] }
+          # no level holds a good part of the ceiling (sloped planks, a vault): its lowest point counts
+          main = cl_lv.min_by { |lv| lv['z'] } if main['area'] < 0.3 * total
+          clear = main['z'] - ffl
           if clear < min_h - 0.5.mm
             issues << { 'check' => 'ceiling_height', 'severity' => 'warning', 'room' => room, 'value_mm' => mm.call(clear),
-                        'limit_mm' => mm.call(min_h), 'objects' => [ref.call(main)] }
+                        'limit_mm' => mm.call(min_h), 'objects' => [ref.call(main['obj'])] }
           end
-          low = cl.min_by { |o| o['zmin'] }
-          lclear = low['zmin'] - ffl
-          next unless lclear < min_local - 0.5.mm
+          low = cl_lv.select { |lv| lv['area'] >= [0.05, 0.02 * total].max }.min_by { |lv| lv['z'] } || main
+          lclear = low['z'] - ffl
+          next unless lclear < min_local - 0.5.mm && low['z'] < main['z'] - 0.5.mm
           issues << { 'check' => 'ceiling_height_local', 'severity' => 'warning', 'room' => room, 'value_mm' => mm.call(lclear),
-                      'limit_mm' => mm.call(min_local), 'objects' => [ref.call(low)] }
+                      'limit_mm' => mm.call(min_local), 'area_m2' => low['area'].round(2), 'objects' => [ref.call(low['obj'])] }
         end
         unless bare.empty?
           skipped_checks << "Ceiling height not checked in #{bare.first(20).join(', ')}#{bare.size > 20 ? ', ...' : ''}: " \

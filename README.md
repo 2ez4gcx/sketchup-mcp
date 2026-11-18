@@ -6,7 +6,7 @@
 
 SketchUp MCP lets Claude work directly in the SketchUp model you have open. Ask in plain language, in any language, and Claude reads the model, runs quantity takeoffs by tag or material, models geometry, assigns materials and tags, takes screenshots to check its own work, and exports images and files. It ships as a Claude Desktop extension (`.mcpb`) that runs on the Node.js built into Claude Desktop, plus a small Ruby extension for SketchUp (the **SU MCP Bridge**). You do not need to install Python or Node.js.
 
-Current version: **1.5.0** - [download it from Releases](https://github.com/2ez4gcx/sketchup-mcp/releases/latest). Also listed in the official [MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.2ez4gcx/sketchup-mcp) as `io.github.2ez4gcx/sketchup-mcp`.
+Current version: **1.6.0** - [download it from Releases](https://github.com/2ez4gcx/sketchup-mcp/releases/latest). Also listed in the official [MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.2ez4gcx/sketchup-mcp) as `io.github.2ez4gcx/sketchup-mcp`.
 
 ## Features
 
@@ -23,9 +23,9 @@ Current version: **1.5.0** - [download it from Releases](https://github.com/2ez4
 Highlights:
 
 - **Professional tags**: Claude tags what it models like a finish schedule, `CODE-NN description` (for example `FL-01 Engineered oak floor 12mm`, `WL-02 Walnut veneer panel`, `CL-01 Gypsum flat ceiling`): one tag per specification, so one tag is one line of the bill of quantities. Codes cover floors (`FL`), skirting (`SK`), wall finishes (`WL`), partitions (`PA`), ceilings (`CL`), cornices (`CO`), doors (`DR`), windows (`WN`), glass (`GL`), built-in joinery (`JN`), furniture (`FN`), lighting (`LT`), sanitary ware (`SN`), equipment (`EQ`), curtains (`CU`), decor (`DE`), existing structure (`EX`) and reference (`RF`). Each tag goes into a folder for its category (SketchUp 2021+) with a category color, shown by *Color by tag* in the Tags panel. A tag scheme already in the model is followed instead.
-- **Interior bill of quantities** (`interior_takeoff`): one row per tag with the unit its category needs: floors and ceilings in m² (each board once, whatever its face orientation; sloped ceilings at their real area), walls, partitions and glass in m² of one side (a door or window that cuts only one face of the wall is deducted), skirting and cornices in metres (also runs made with Follow Me around a room), curtains in width x height, existing structure in m³, everything else by count. Walls drawn at an angle are measured like straight ones. It adds totals per category and warnings: geometry in no tagged object, a whole room drawn as one box, objects on hidden tags (not measured unless you ask), components nested in a finish without their own tag. It can save the table as a CSV file for Excel.
+- **Interior bill of quantities** (`interior_takeoff`): one row per tag with the unit its category needs, measured on the real surfaces of the model. Floors: the surfaces looking up plus the risers and platform fronts between them (a stair is treads and risers). Ceilings: the undersides plus the drops of stepped ceilings and the exposed sides of box bulkheads, sloped parts at their real area. Wall finishes: one side of each wall panel plus its returns and reveals (niche sides, panels turned into an opening, heads and sills); partitions and glass: one side. Skirting and cornices in metres, at their real length (runs with returns or made with Follow Me, boards running up a stair). Curtains in width x height, existing structure in m³, everything else by count. Every area row shows its workings: gross, the openings deducted, the vertical parts or reveals added. `rules: "vn"` applies Vietnamese practice (openings under 0.25 m² are not deducted, three decimals); the threshold and the decimals can also be set one by one, and `surfaces: "main"` leaves the vertical parts and reveals out. Rooms add up to the row. Warnings: geometry in no tagged object, a whole room drawn as one box, objects on hidden tags, a finish drawn twice in the same place, a door standing in a wall that is not cut. Cross-checks compare floor and ceiling per room, and what `create_room` built with what is measured now. It can save the table as a CSV file for Excel.
 - **Quantities by room**: put each room's objects in a named group without a tag (for example `Living room`; nested groups give `Level 2 / Bedroom 1`), and `by_room` splits every line by room. The CSV then has one column per room next to the total. `make_group` builds the room groups.
-- **Rooms in one step** (`create_room`): give the outline of a room (the bare inner face of its walls), its height and its finishes, and Claude builds the floor finish, one wall-finish panel per wall with the doors and windows cut through, the ceiling board, the skirting (interrupted at doors) and the door leaves and glass panes, each tagged and named, inside a room group. Every wall panel follows its wall, so angled rooms are measured and checked correctly. A feature wall can take another finish, and an open side can be left without a wall.
+- **Rooms in one step** (`create_room`): give the outline of a room (the bare inner face of its walls), its height and its finishes, and Claude builds the floor finish, one wall-finish panel per wall with the doors and windows cut through, the ceiling board, the skirting (interrupted at doors) and the door leaves and glass panes, each tagged and named, inside a room group. Every wall panel follows its wall, so angled rooms are measured and checked correctly. A feature wall can take another finish, an open side can be left without a wall, and an opening can have a reveal depth: its jambs, head and sill are then lined with the wall finish.
 - **Model health check** (`check_model`, `purge_unused`): geometry outside groups or without a tag, raw faces carrying tags, inside-out solids and faces turned different ways, stacked duplicate copies (they double quantities), loose and tiny edges, unused components/materials/tags, heavy textures and components, hidden objects, tags without a standard code. `purge_unused` cleans up, keeping the empty standard tags made with `setup_tags`.
 - **Documentation scenes** (`create_scenes`): furniture plan, reflected ceiling plan (same orientation as the plan, with walls and openings for reference), floor finish plan, four elevations and an eye-level view per room, and plans per level when rooms are grouped into levels. The section planes sit on a hidden tag of their own (they still cut) and the ceiling plan gets a style of its own with your display settings and X-ray. Re-running replaces the scenes it made for the same kinds and rooms; your own scenes, view, style and tags are left as they were. Scene names can be in any language.
 - **Detailed furniture** (`insert_furniture`): a track-arm sofa with cushions and pillows, a swivel lounge chair, a round glass coffee table, a ficus in a pot and scatter pillows, built from smooth meshes to the size you give, each one tagged item.
@@ -52,7 +52,7 @@ This demo pavilion was built entirely through the MCP tools (`create_box`, `crea
 Claude Desktop
     |  MCP over stdio
     v
-sketchup-mcp-1.5.0.mcpb        Node.js MCP server, runs on the Node built into Claude Desktop
+sketchup-mcp-1.6.0.mcpb        Node.js MCP server, runs on the Node built into Claude Desktop
     |  one JSON request per command, TCP 127.0.0.1:9876 (localhost only)
     v
 SU MCP Bridge                  Ruby extension inside SketchUp, starts with SketchUp
@@ -74,19 +74,19 @@ Get the files from the [latest release](https://github.com/2ez4gcx/sketchup-mcp/
 
 | File | What it is |
 |---|---|
-| `sketchup-mcp-1.5.0.mcpb` | Claude Desktop extension (the main download) |
-| `su_mcp-1.5.0.rbz` | SketchUp plugin (SU MCP Bridge), only needed for a manual install |
-| `SketchUpMCP_v1.5.0.zip` | Everything: extension, plugin, user guides (HTML + PDF, English and Vietnamese), sample prompts, changelog, license |
-| `SketchUp-MCP-Guide-1.5.0.pdf` | The English user guide on its own |
+| `sketchup-mcp-1.6.0.mcpb` | Claude Desktop extension (the main download) |
+| `su_mcp-1.6.0.rbz` | SketchUp plugin (SU MCP Bridge), only needed for a manual install |
+| `SketchUpMCP_v1.6.0.zip` | Everything: extension, plugin, user guides (HTML + PDF, English and Vietnamese), sample prompts, changelog, license |
+| `SketchUp-MCP-Guide-1.6.0.pdf` | The English user guide on its own |
 
 ## Install
 
-1. **Install the extension in Claude Desktop.** Open *Settings > Extensions*, then drag and drop `sketchup-mcp-1.5.0.mcpb` into the window, or click *Advanced settings > Install Extension...* and pick the file. Click *Install*. The build is not code-signed, so Claude Desktop may warn that the extension is unsigned: only install a file from this project's [releases](https://github.com/2ez4gcx/sketchup-mcp/releases/latest) or one you built yourself. On the Microsoft Store version of Claude, double-clicking a `.mcpb` file does not open it, so install it through Settings.
+1. **Install the extension in Claude Desktop.** Open *Settings > Extensions*, then drag and drop `sketchup-mcp-1.6.0.mcpb` into the window, or click *Advanced settings > Install Extension...* and pick the file. Click *Install*. The build is not code-signed, so Claude Desktop may warn that the extension is unsigned: only install a file from this project's [releases](https://github.com/2ez4gcx/sketchup-mcp/releases/latest) or one you built yourself. On the Microsoft Store version of Claude, double-clicking a `.mcpb` file does not open it, so install it through Settings.
 2. **Install the SU MCP Bridge in SketchUp.** In a new chat, ask Claude:
    > Install SU MCP Bridge in SketchUp
 
    Claude calls `install_sketchup_bridge` (click *Allow*) and lists the SketchUp versions it updated. Or install it manually: *Extensions > Extension Manager > Install Extension* (SketchUp 2017-2020: *Window > Extension Manager*), then pick `su_mcp.rbz`. The plugin is not digitally signed. If SketchUp refuses to load it, set the Extension Loading Policy (gear icon in Extension Manager) to *Approve Unidentified Extensions*, if your IT policy allows it.
-3. **Fully quit SketchUp and reopen it.** Then check *Extensions > SU MCP Bridge > Status*. It should show `SU MCP Bridge v1.5.0: RUNNING on 127.0.0.1:9876`. Finally, ask Claude "Ping SketchUp".
+3. **Fully quit SketchUp and reopen it.** Then check *Extensions > SU MCP Bridge > Status*. It should show `SU MCP Bridge v1.6.0: RUNNING on 127.0.0.1:9876`. Finally, ask Claude "Ping SketchUp".
 
 Options are under *Settings > Extensions > SketchUp MCP > Configure*: the bridge port (default 9876) and the timeout per command (default 120 s; raise it for takeoffs on large models). If you change the port, change it in SketchUp too (*Extensions > SU MCP Bridge > Change port...*) and restart SketchUp.
 
@@ -105,7 +105,7 @@ the file to `.zip` and use *Extract All*:
 
 ```bat
 mkdir C:\Tools\sketchup-mcp
-tar -xf sketchup-mcp-1.5.0.mcpb -C C:\Tools\sketchup-mcp
+tar -xf sketchup-mcp-1.6.0.mcpb -C C:\Tools\sketchup-mcp
 ```
 
 The server is then `C:/Tools/sketchup-mcp/server/index.mjs` (use forward slashes in configs). The folder also contains
@@ -257,7 +257,7 @@ Use the ChatGPT desktop app (Codex mode) instead.
 | `Cannot connect to SketchUp at 127.0.0.1:9876. Open SketchUp and check Extensions > SU MCP Bridge > Status ...` | SketchUp is not open, or the bridge is not installed or is stopped. | Open SketchUp and check *Status*. If the *SU MCP Bridge* menu is missing, repeat install step 2. If Status shows `STOPPED`, click *Start server*. |
 | `SketchUp did not respond within 120s (command '...'). ... MAY HAVE ALREADY RUN` | A model-editing command took longer than the timeout. It may have finished. | Do not repeat it right away. Check the model, and if something was duplicated, undo it (after `save_model`, `open_model`, `new_model`, `export_*` or `undo` itself, check the file or model instead of using undo). Raise the timeout in *Configure* (other clients: `SKETCHUP_MCP_TIMEOUT`). |
 | `SketchUp did not respond within 120s (command '...'). This command does not modify the model and can be retried` | A read command (for example a takeoff on a large model) is still running. | Raise the timeout first (*Configure*, or `SKETCHUP_MCP_TIMEOUT` in other clients), wait until SketchUp is no longer busy, then ask again. |
-| `Unsupported command: ...`, or `ping` returns `warning: The bridge in SketchUp ... is v..., older than the bundled v1.5.0` | The bridge in SketchUp is older than the Claude extension. | Run `install_sketchup_bridge` again, then fully quit and reopen SketchUp. |
+| `Unsupported command: ...`, or `ping` returns `warning: The bridge in SketchUp ... is v..., older than the bundled v1.6.0` | The bridge in SketchUp is older than the Claude extension. | Run `install_sketchup_bridge` again, then fully quit and reopen SketchUp. |
 | `Port 9876 is used by another SketchUp window (or another program).` | Two SketchUp windows are open. Claude controls the first one. | Close the other window, then click *Extensions > SU MCP Bridge > Start server*. |
 | `Windows does not allow port 9876 ...` | The port is in a range reserved by Windows/Hyper-V. | Use *Extensions > SU MCP Bridge > Change port...*, restart SketchUp, then set the same port in *Configure* (other clients: `SKETCHUP_MCP_PORT`). |
 | `run_ruby must not call exit/abort (SystemExit) - changes were rolled back` | The Ruby snippet called `exit` or `abort`. | Nothing was changed. Ask Claude to rewrite the code without `exit`. |

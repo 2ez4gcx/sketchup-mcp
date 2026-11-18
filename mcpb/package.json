@@ -1,6 +1,6 @@
 {
   "name": "sketchup-mcp",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "private": true,
   "description": "SketchUp MCP server (Node.js) packaged as a Claude Desktop Extension (.mcpb)",
   "license": "MIT",

@@ -6,7 +6,7 @@
 
 SketchUp MCP lets Claude work directly in the SketchUp model you have open. Ask in plain language, in any language, and Claude reads the model, runs quantity takeoffs by tag or material, models geometry, assigns materials and tags, takes screenshots to check its own work, and exports images and files. It ships as a Claude Desktop extension (`.mcpb`) that runs on the Node.js built into Claude Desktop, plus a small Ruby extension for SketchUp (the **SU MCP Bridge**). You do not need to install Python or Node.js.
 
-Current version: **1.6.0** - [download it from Releases](https://github.com/2ez4gcx/sketchup-mcp/releases/latest). Also listed in the official [MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.2ez4gcx/sketchup-mcp) as `io.github.2ez4gcx/sketchup-mcp`.
+Current version: **1.7.0** - [download it from Releases](https://github.com/2ez4gcx/sketchup-mcp/releases/latest). Also listed in the official [MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.2ez4gcx/sketchup-mcp) as `io.github.2ez4gcx/sketchup-mcp`.
 
 ## Features
 
@@ -52,7 +52,7 @@ This demo pavilion was built entirely through the MCP tools (`create_box`, `crea
 Claude Desktop
     |  MCP over stdio
     v
-sketchup-mcp-1.6.0.mcpb        Node.js MCP server, runs on the Node built into Claude Desktop
+sketchup-mcp-1.7.0.mcpb        Node.js MCP server, runs on the Node built into Claude Desktop
     |  one JSON request per command, TCP 127.0.0.1:9876 (localhost only)
     v
 SU MCP Bridge                  Ruby extension inside SketchUp, starts with SketchUp
@@ -74,19 +74,19 @@ Get the files from the [latest release](https://github.com/2ez4gcx/sketchup-mcp/
 
 | File | What it is |
 |---|---|
-| `sketchup-mcp-1.6.0.mcpb` | Claude Desktop extension (the main download) |
-| `su_mcp-1.6.0.rbz` | SketchUp plugin (SU MCP Bridge), only needed for a manual install |
-| `SketchUpMCP_v1.6.0.zip` | Everything: extension, plugin, user guides (HTML + PDF, English and Vietnamese), sample prompts, changelog, license |
-| `SketchUp-MCP-Guide-1.6.0.pdf` | The English user guide on its own |
+| `sketchup-mcp-1.7.0.mcpb` | Claude Desktop extension (the main download) |
+| `su_mcp-1.7.0.rbz` | SketchUp plugin (SU MCP Bridge), only needed for a manual install |
+| `SketchUpMCP_v1.7.0.zip` | Everything: extension, plugin, user guides (HTML + PDF, English and Vietnamese), sample prompts, changelog, license |
+| `SketchUp-MCP-Guide-1.7.0.pdf` | The English user guide on its own |
 
 ## Install
 
-1. **Install the extension in Claude Desktop.** Open *Settings > Extensions*, then drag and drop `sketchup-mcp-1.6.0.mcpb` into the window, or click *Advanced settings > Install Extension...* and pick the file. Click *Install*. The build is not code-signed, so Claude Desktop may warn that the extension is unsigned: only install a file from this project's [releases](https://github.com/2ez4gcx/sketchup-mcp/releases/latest) or one you built yourself. On the Microsoft Store version of Claude, double-clicking a `.mcpb` file does not open it, so install it through Settings.
+1. **Install the extension in Claude Desktop.** Open *Settings > Extensions*, then drag and drop `sketchup-mcp-1.7.0.mcpb` into the window, or click *Advanced settings > Install Extension...* and pick the file. Click *Install*. The build is not code-signed, so Claude Desktop may warn that the extension is unsigned: only install a file from this project's [releases](https://github.com/2ez4gcx/sketchup-mcp/releases/latest) or one you built yourself. On the Microsoft Store version of Claude, double-clicking a `.mcpb` file does not open it, so install it through Settings.
 2. **Install the SU MCP Bridge in SketchUp.** In a new chat, ask Claude:
    > Install SU MCP Bridge in SketchUp
 
    Claude calls `install_sketchup_bridge` (click *Allow*) and lists the SketchUp versions it updated. Or install it manually: *Extensions > Extension Manager > Install Extension* (SketchUp 2017-2020: *Window > Extension Manager*), then pick `su_mcp.rbz`. The plugin is not digitally signed. If SketchUp refuses to load it, set the Extension Loading Policy (gear icon in Extension Manager) to *Approve Unidentified Extensions*, if your IT policy allows it.
-3. **Fully quit SketchUp and reopen it.** Then check *Extensions > SU MCP Bridge > Status*. It should show `SU MCP Bridge v1.6.0: RUNNING on 127.0.0.1:9876`. Finally, ask Claude "Ping SketchUp".
+3. **Fully quit SketchUp and reopen it.** Then check *Extensions > SU MCP Bridge > Status*. It should show `SU MCP Bridge v1.7.0: RUNNING on 127.0.0.1:9876`. Finally, ask Claude "Ping SketchUp".
 
 Options are under *Settings > Extensions > SketchUp MCP > Configure*: the bridge port (default 9876) and the timeout per command (default 120 s; raise it for takeoffs on large models). If you change the port, change it in SketchUp too (*Extensions > SU MCP Bridge > Change port...*) and restart SketchUp.
 
@@ -105,7 +105,7 @@ the file to `.zip` and use *Extract All*:
 
 ```bat
 mkdir C:\Tools\sketchup-mcp
-tar -xf sketchup-mcp-1.6.0.mcpb -C C:\Tools\sketchup-mcp
+tar -xf sketchup-mcp-1.7.0.mcpb -C C:\Tools\sketchup-mcp
 ```
 
 The server is then `C:/Tools/sketchup-mcp/server/index.mjs` (use forward slashes in configs). The folder also contains
@@ -238,16 +238,27 @@ For personal Google accounts, Gemini CLI has been replaced by Antigravity CLI, w
 </details>
 
 **ChatGPT on the web** cannot start local programs; it would need this server exposed on a public HTTPS endpoint.
-That is not recommended: `run_ruby` executes arbitrary Ruby inside SketchUp, and the bridge has no authentication.
+That is not recommended: `run_ruby` executes arbitrary Ruby inside SketchUp, and the bridge is made for programs on your own computer.
 Use the ChatGPT desktop app (Codex mode) instead.
+
+## Known limits of the bill of quantities
+
+The takeoff measures what is drawn. It cannot know what was left out or drawn in the wrong place, so check the quantities against the drawings before you use them. Known limits:
+
+- **Openings** are found from the outline of a piece. A patch at the edge of a wall, or two projections on the same side, can be read as an opening. An opening crossed by a panel joint is not listed in the workings (the quantity itself stays right).
+- **Exposed sides** (the side of a box bulkhead, the front of a platform) count when nothing lies within 50 mm in front of them and the space in front is over a floor. The edge of a floor layer up to 100 mm thick (a thick finish, a low platform) counts only when it stands over a finished floor (a tag with code FL). At most 4000 sides are tested per takeoff; the result says how many were skipped.
+- **Curved or segmented walls drawn as solids** are measured approximately, as half of their vertical faces, and the row says so. Drawn as a single skin they are measured exactly.
+- **Rooms with the same name** are added together.
+- The new measuring engine has been tested on SketchUp 2023 for Windows only.
 
 ## Safety notes
 
-- **Localhost only.** The bridge listens on `127.0.0.1`, so other machines on the network cannot connect. The socket has no authentication, though: any program running on the same computer can send commands while the bridge is running. To turn it off for the current session, use *Extensions > SU MCP Bridge > Stop server* (it starts again with SketchUp).
-- **Keep approvals on.** Claude Desktop asks before each tool call. Do not choose "Always allow" for `run_ruby`, `delete_entities`, `undo`, `save_model`, `open_model`, `new_model`, `export_file`, `export_png`, `export_for_render`, `interior_takeoff`, `purge_unused` or `create_scenes` (the export tools, and the takeoff when it saves a CSV, can overwrite files).
+- **Localhost only.** The bridge listens on `127.0.0.1`, so other machines on the network cannot connect. Since 1.7 every command must carry an access token that the bridge writes at start into its plugin folder (`token_<port>.txt`), which only your Windows or macOS account can read, so other accounts on the same computer cannot send commands. Programs running under your own account can read that file, as they can read your other files. To stop the bridge for the current session, use *Extensions > SU MCP Bridge > Stop server* (it starts again with SketchUp). A bridge 1.7 needs a server 1.7: always update both parts.
+- **`run_ruby` can be turned off.** In Claude Desktop: *Settings > Extensions > SketchUp MCP > Allow run_ruby* (the tool disappears; other clients: set `SKETCHUP_MCP_RUN_RUBY=false`). In SketchUp: *Extensions > SU MCP Bridge > Allow Ruby code (run_ruby)*. Turn it off when you open models from people you do not know: names inside a model are text the AI reads.
+- **Keep approvals on.** Claude Desktop asks before each tool call. Do not choose "Always allow" for `run_ruby`, `delete_entities`, `undo`, `save_model`, `open_model`, `new_model`, `export_file`, `export_png`, `export_for_render`, `interior_takeoff`, `purge_unused` or `create_scenes` (they write files; an existing file is replaced only when the tool is called with `overwrite=true`, and `export_for_render` likewise).
 - **`run_ruby` executes arbitrary Ruby** inside SketchUp, with your user's permissions and no time limit. Read the code before you allow it. An infinite loop freezes SketchUp, and you would have to close it from Task Manager and lose unsaved changes.
 - **Every edit is one Undo step**, so a wrong result can be taken back with <kbd>Ctrl</kbd>+<kbd>Z</kbd> or by asking Claude to undo.
-- **Work on copies of your projects**, and save a copy before each session with Claude. `save_model` without a path overwrites the current file.
+- **Work on copies of your projects**, and save a copy before each session with Claude. `save_model` without a path saves over the current file.
 - **Model data is sent to Claude.** When you ask a question, Claude reads model information (object names, quantities, screenshots...) and sends it to Anthropic's Claude service for processing. Follow your organization's and your clients' rules for confidential projects.
 
 ## Troubleshooting
@@ -257,7 +268,8 @@ Use the ChatGPT desktop app (Codex mode) instead.
 | `Cannot connect to SketchUp at 127.0.0.1:9876. Open SketchUp and check Extensions > SU MCP Bridge > Status ...` | SketchUp is not open, or the bridge is not installed or is stopped. | Open SketchUp and check *Status*. If the *SU MCP Bridge* menu is missing, repeat install step 2. If Status shows `STOPPED`, click *Start server*. |
 | `SketchUp did not respond within 120s (command '...'). ... MAY HAVE ALREADY RUN` | A model-editing command took longer than the timeout. It may have finished. | Do not repeat it right away. Check the model, and if something was duplicated, undo it (after `save_model`, `open_model`, `new_model`, `export_*` or `undo` itself, check the file or model instead of using undo). Raise the timeout in *Configure* (other clients: `SKETCHUP_MCP_TIMEOUT`). |
 | `SketchUp did not respond within 120s (command '...'). This command does not modify the model and can be retried` | A read command (for example a takeoff on a large model) is still running. | Raise the timeout first (*Configure*, or `SKETCHUP_MCP_TIMEOUT` in other clients), wait until SketchUp is no longer busy, then ask again. |
-| `Unsupported command: ...`, or `ping` returns `warning: The bridge in SketchUp ... is v..., older than the bundled v1.6.0` | The bridge in SketchUp is older than the Claude extension. | Run `install_sketchup_bridge` again, then fully quit and reopen SketchUp. |
+| `SketchUp refused the command ... access token` | The bridge is 1.7 or later and the server is older, or SketchUp runs under another user account. | Install the latest `.mcpb` (or update your server copy). If SketchUp really runs as another user, turn the check off: *Extensions > SU MCP Bridge > Require access token*. |
+| `Unsupported command: ...`, or `ping` returns `warning: The bridge in SketchUp ... is v..., older than the bundled v1.7.0` | The bridge in SketchUp is older than the Claude extension. | Run `install_sketchup_bridge` again, then fully quit and reopen SketchUp. |
 | `Port 9876 is used by another SketchUp window (or another program).` | Two SketchUp windows are open. Claude controls the first one. | Close the other window, then click *Extensions > SU MCP Bridge > Start server*. |
 | `Windows does not allow port 9876 ...` | The port is in a range reserved by Windows/Hyper-V. | Use *Extensions > SU MCP Bridge > Change port...*, restart SketchUp, then set the same port in *Configure* (other clients: `SKETCHUP_MCP_PORT`). |
 | `run_ruby must not call exit/abort (SystemExit) - changes were rolled back` | The Ruby snippet called `exit` or `abort`. | Nothing was changed. Ask Claude to rewrite the code without `exit`. |

@@ -6,6 +6,7 @@
 // export_for_render check): set BLENDER to blender.exe, else %LOCALAPPDATA%/Programs/Blender/*/blender.exe is used.
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
@@ -248,9 +249,11 @@ puts({ 'defs' => m.definitions.size, 'painted' => d.entities.grep(Sketchup::Face
   const lock = spawn('powershell', ['-NoProfile', '-Command',
     `$f=[System.IO.File]::Open('${locked.replace(/'/g, "''")}','Open','ReadWrite','None'); Start-Sleep -Seconds 30; $f.Close()`]);
   await wait(2500);
-  const lk = await S.tool('export_png', { path: locked, width: 200, height: 150 });
+  const lk = await S.tool('export_png', { path: locked, width: 200, height: 150, overwrite: true });
   lock.kill();
   check('export_png: a file locked by another program gives a clear error', lk.isError && /could not write/i.test(lk.txt), lk.txt.slice(0, 400));
+  const nolk = await S.tool('export_png', { path: path.join(OUT, 'locked.png'), width: 200, height: 150 });
+  check('1.6.1 export_png: an existing file is not replaced without overwrite=true', nolk.isError && /already exists/.test(nolk.txt), nolk.txt.slice(0, 300));
 
   // ---------------------------------------------------------------- insert_furniture
   const fu = {};
@@ -465,6 +468,119 @@ true`);
   check('check_model runs', Array.isArray(cm.issues), cm && JSON.stringify(cm.counts));
   const cd = await must('check_design', {});
   check('check_design runs', Array.isArray(cd.issues), JSON.stringify(cd.counts));
+
+  // ---------------------------------------------------------------- 1.6.1: cases from the audit of 1.6.0
+  await ruby(`m = Sketchup.active_model
+y0 = 32000
+tg = lambda { |n| m.layers[n] || m.layers.add(n) }
+pt = lambda { |x, y, z| Geom::Point3d.new(x.mm, y.mm, z.mm) }
+grp = lambda { |name, tag| g = m.entities.add_group; g.name = name; g.layer = tg.call(tag); g }
+box = lambda do |ents, x0, ya, z0, w, d, h|
+  f = ents.add_face(pt.call(x0, ya, z0), pt.call(x0 + w, ya, z0), pt.call(x0 + w, ya + d, z0), pt.call(x0, ya + d, z0))
+  f.reverse! if f.normal.z < 0
+  f.pushpull(h.mm)
+end
+# U1 a bulkhead drawn as an L skin: fascia 4000 x 400, soffit 4000 x 300; U1b with a 150 soffit; U1c a platform skin
+[['U1 L bulkhead', 'CL-21 T L skin', 0, 300], ['U1b L bulkhead thin', 'CL-22 T L thin', 5000, 150]].each do |name, tag, x0, d|
+  e = grp.call(name, tag).entities
+  e.add_face(pt.call(x0, y0, 2300), pt.call(x0 + 4000, y0, 2300), pt.call(x0 + 4000, y0, 2700), pt.call(x0, y0, 2700))
+  e.add_face(pt.call(x0, y0, 2300), pt.call(x0 + 4000, y0, 2300), pt.call(x0 + 4000, y0 + d, 2300), pt.call(x0, y0 + d, 2300))
+end
+e = grp.call('U1c platform skin', 'FL-21 T platform skin').entities
+e.add_face(pt.call(10000, y0, 0), pt.call(12000, y0, 0), pt.call(12000, y0, 450), pt.call(10000, y0, 450))
+e.add_face(pt.call(10000, y0, 450), pt.call(12000, y0, 450), pt.call(12000, y0 + 300, 450), pt.call(10000, y0 + 300, 450))
+# U2 a splayed bay as one skin, 2700 high: 600 at 30 degrees, 2000, 600 at 30 degrees
+e = grp.call('U2 splayed bay', 'WL-21 T bay').entities
+dx = 600 * Math.cos(30.degrees)
+[[0, 300, dx, 0], [dx, 0, dx + 2000, 0], [dx + 2000, 0, 2 * dx + 2000, 300]].each do |xa, ya, xb, yb|
+  e.add_face(pt.call(13000 + xa, y0 + ya, 0), pt.call(13000 + xb, y0 + yb, 0), pt.call(13000 + xb, y0 + yb, 2700), pt.call(13000 + xa, y0 + ya, 2700))
+end
+# U3 a box bulkhead over a floor, and across the room a wall drawn as one face looking away from the room
+box.call(grp.call('U3 bulkhead', 'CL-23 T box reversed').entities, 17000, y0, 2400, 4000, 300, 300)
+box.call(grp.call('U3 floor', 'FL-29 T floor u3').entities, 17000, y0 + 300, -12, 4000, 3000, 12)
+f = grp.call('U3 shell', 'EX-21 T shell').entities.add_face(pt.call(17000, y0 + 3300, 0), pt.call(21000, y0 + 3300, 0), pt.call(21000, y0 + 3300, 2700), pt.call(17000, y0 + 3300, 2700))
+f.reverse! if f.normal.y < 0
+# U4 a floor finish 50 thick lying on a larger slab (its edges are not steps); U4b a platform 80 high on a floor finish (they are)
+box.call(grp.call('U4 thick floor', 'FL-24 T thick').entities, 22500, y0, 0, 4000, 3000, 50)
+box.call(grp.call('U4 slab', 'EX-22 T slab').entities, 22000, y0 - 500, -200, 5000, 4000, 200)
+box.call(grp.call('U4b floor', 'FL-26 T floor u4').entities, 28000, y0, -12, 3000, 3000, 12)
+box.call(grp.call('U4b platform', 'FL-25 T low platform').entities, 29000, y0 + 1000, 0, 1000, 1000, 80)
+# U7 a nib of skirting 60 long, 80 high; U8 a threshold strip 2000 x 25 x 10
+box.call(grp.call('U7 skirting nib', 'SK-21 T short').entities, 32000, y0, 0, 60, 12, 80)
+box.call(grp.call('U8 threshold', 'FL-27 T strip').entities, 33000, y0, 0, 2000, 25, 10)
+# U9 a wall board 2000 x 2700 with an opening of exactly 0.25 m2
+e = grp.call('U9 wall', 'WL-22 T quarter').entities
+e.add_face(pt.call(36000, y0, 0), pt.call(38000, y0, 0), pt.call(38000, y0, 2700), pt.call(36000, y0, 2700))
+e.add_face(pt.call(36500, y0, 1000), pt.call(37000, y0, 1000), pt.call(37000, y0, 1500), pt.call(36500, y0, 1500)).erase!
+f = e.grep(Sketchup::Face).first
+f.pushpull(f.normal.y > 0 ? 10.mm : -10.mm)
+true`);
+  const wn = await must('create_room', { name: 'T wainscot', points: [[40000, 32000], [43000, 32000], [43000, 35000], [40000, 35000]], height: 2700,
+    walls: { tag: 'WL-23 T wainscot', thickness: 12, height: 1200 },
+    openings: [{ edge: 1, offset: 1000, width: 900, height: 2100, reveal: 100, tag: 'DR-21 T door' }] });
+  const linings = await rubyJson(`n = 0
+walk = lambda { |ents| ents.grep(Sketchup::Group).each { |g| n += 1 if g.get_attribute('su_mcp', 'part') == 'reveal'; walk.call(g.entities) } }
+walk.call(Sketchup.active_model.entities.grep(Sketchup::Group).find { |g| g.name == 'T wainscot' }.entities)
+puts n.to_json`);
+  const t161 = await must('interior_takeoff', {});
+  const q161 = (t) => t161.rows.find((x) => x.tag === t) || {};
+  check('1.6.1 bulkhead as an L skin: soffit 1.20 + fascia 1.60 = 2.80 (was 4.40)', near(q161('CL-21 T L skin').quantity, 2.8, 0.01), JSON.stringify(q161('CL-21 T L skin')));
+  check('1.6.1 the same with a 150 soffit: 0.60 + 1.60 = 2.20', near(q161('CL-22 T L thin').quantity, 2.2, 0.01), JSON.stringify(q161('CL-22 T L thin')));
+  check('1.6.1 platform as a skin: top 0.60 + front 0.90 = 1.50 (was 2.40)', near(q161('FL-21 T platform skin').quantity, 1.5, 0.01), JSON.stringify(q161('FL-21 T platform skin')));
+  check('1.6.1 splayed bay as one skin: 3.2 x 2.7 = 8.64 (was 4.32), not reported as halved', near(q161('WL-21 T bay').quantity, 8.64, 0.01)
+    && !/half/.test((q161('WL-21 T bay').warnings || []).join(' ')), JSON.stringify(q161('WL-21 T bay')));
+  check('1.6.1 box bulkhead facing a wall drawn inside out: underside 1.20 + fascia 1.20 = 2.40 (was 1.20)', near(q161('CL-23 T box reversed').quantity, 2.4, 0.01), JSON.stringify(q161('CL-23 T box reversed')));
+  check('1.6.1 floor finish 50 thick on a larger slab: 12.00, its edges are not steps (was 12.70)', near(q161('FL-24 T thick').quantity, 12, 0.01), JSON.stringify(q161('FL-24 T thick')));
+  check('1.6.1 platform 80 high on a floor finish: 1.00 + 4 x 0.08 = 1.32', near(q161('FL-25 T low platform').quantity, 1.32, 0.01), JSON.stringify(q161('FL-25 T low platform')));
+  check('1.6.1 skirting nib 60 long, 80 high: 0.06 m (was 0.08)', near(q161('SK-21 T short').quantity, 0.06, 0.005), JSON.stringify(q161('SK-21 T short')));
+  check('1.6.1 threshold strip 2000 x 25: 0.05 m2 (was 0)', near(q161('FL-27 T strip').quantity, 0.05, 0.005), JSON.stringify(q161('FL-27 T strip')));
+  check('1.6.1 wainscot 1200 with a door 2100 high: two jamb linings, no head board across the doorway (0.24 m2 of reveals)', linings === 2
+    && near(wn.quantities.reveal_area_m2, 0.24, 0.005) && !(t161.checks || []).some((c) => c.includes('T wainscot')), JSON.stringify([linings, wn.quantities, t161.checks]));
+  // ---------------------------------------------------------------- 1.7: rooms with the same name, run_ruby switch, access token
+  await ruby(`m = Sketchup.active_model
+2.times do |k|
+  room = m.entities.add_group
+  room.name = 'T twin'
+  g = room.entities.add_group
+  g.layer = m.layers['FL-31 T twin'] || m.layers.add('FL-31 T twin')
+  f = g.entities.add_face([45000 + k * 3000, 32000, 0].map(&:mm), [47000 + k * 3000, 32000, 0].map(&:mm), [47000 + k * 3000, 34000, 0].map(&:mm), [45000 + k * 3000, 34000, 0].map(&:mm))
+  f.reverse! if f.normal.z < 0
+end
+true`);
+  const t17 = await must('interior_takeoff', { by_room: true });
+  const twin = t17.rows.find((x) => x.tag === 'FL-31 T twin') || {};
+  check('1.7 two room groups with the same name: added together (8.00) and reported', near(twin.quantity, 8, 0.01)
+    && (t17.warnings || []).some((w) => w.startsWith('2 room groups are named "T twin"')), JSON.stringify([twin.quantity, t17.warnings]));
+  const off = await rubyJson(`b = KhuongDoan::SuMcp
+Sketchup.write_default('SuMcp', 'run_ruby', false)
+r = begin
+  b.cmd_run_ruby('code' => '1 + 1')
+  'ran'
+rescue ArgumentError => e
+  e.message
+ensure
+  Sketchup.write_default('SuMcp', 'run_ruby', true)
+end
+puts [r, b.ruby_on?].to_json`);
+  check('1.7 run_ruby turned off in SketchUp: refused with a clear message (and turned on again)', /turned off in SketchUp/.test(off[0]) && off[1] === true, JSON.stringify(off));
+  const raw = (req) => new Promise((resolve) => {
+    const sock = net.createConnection({ host: '127.0.0.1', port: Number(process.env.SKETCHUP_MCP_PORT || 9876) });
+    let buf = '';
+    sock.on('connect', () => sock.write(JSON.stringify(req) + '\n'));
+    sock.on('data', (d) => { buf += d; });
+    sock.on('end', () => { try { resolve(JSON.parse(buf)); } catch { resolve({ ok: false, error: buf }); } });
+    sock.on('error', (e) => resolve({ ok: false, error: e.message }));
+  });
+  const tok = await rubyJson("puts((KhuongDoan::SuMcp.make_token ? true : false).to_json)");
+  const noTok = await raw({ id: 1, cmd: 'model_info', params: {} });
+  const badTok = await raw({ id: 2, cmd: 'model_info', params: {}, token: 'x' });
+  const pingNoTok = await raw({ id: 3, cmd: 'ping', params: {} });
+  const withTok = await S.tool('model_info', {});
+  check('1.7 access token: a command without the token (or with a wrong one) is refused, ping still answers, the server reads the token and goes on',
+    tok === true && !noTok.ok && noTok.code === 'BAD_TOKEN' && badTok.code === 'BAD_TOKEN' && pingNoTok.ok && pingNoTok.result.access_token === true
+    && !withTok.isError, JSON.stringify([tok, noTok, badTok, pingNoTok, withTok.txt.slice(0, 200)]));
+  const q25 = (await must('interior_takeoff', { rules: 'vn' })).rows.find((x) => x.tag === 'WL-22 T quarter') || {};
+  check('1.6.1 rules=vn: an opening of exactly 0.25 m2 is deducted (5.400 - 0.250 = 5.150)', near(q25.quantity, 5.15, 0.001) && near(q25.deducted_m2, 0.25, 0.001) && !q25.not_deducted_m2, JSON.stringify(q25));
 } catch (e) {
   fail++;
   console.log('ERROR during the test:', e.message);

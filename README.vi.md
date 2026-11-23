@@ -6,7 +6,7 @@
 
 SketchUp MCP cho phép Claude làm việc trực tiếp trên mô hình SketchUp đang mở. Bạn hỏi bằng ngôn ngữ tự nhiên (tiếng Việt, tiếng Anh hay ngôn ngữ nào cũng được), Claude sẽ đọc mô hình, bóc khối lượng theo tag hoặc vật liệu, dựng hình, gán vật liệu và tag, chụp ảnh để tự kiểm tra, xuất ảnh và xuất file. Gồm hai phần: một extension cho Claude Desktop (`.mcpb`, chạy bằng Node.js có sẵn trong Claude Desktop) và một plugin Ruby nhỏ cho SketchUp (**SU MCP Bridge**). Không cần cài Python hay Node.js.
 
-Phiên bản 1.6.0 (menu, thông báo và mô tả công cụ bằng tiếng Anh). Bản đầy đủ và cập nhật nhất của tài liệu này là [README.md](README.md) (tiếng Anh). Dự án có trên [MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.2ez4gcx/sketchup-mcp) chính thức với tên `io.github.2ez4gcx/sketchup-mcp`.
+Phiên bản 1.7.0 (menu, thông báo và mô tả công cụ bằng tiếng Anh). Bản đầy đủ và cập nhật nhất của tài liệu này là [README.md](README.md) (tiếng Anh). Dự án có trên [MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.2ez4gcx/sketchup-mcp) chính thức với tên `io.github.2ez4gcx/sketchup-mcp`.
 
 ## Tính năng
 
@@ -49,7 +49,7 @@ Pavilion demo này được dựng hoàn toàn bằng các tool MCP (`create_box
 Claude Desktop
     |  MCP qua stdio
     v
-sketchup-mcp-1.6.0.mcpb        MCP server Node.js, chạy bằng Node có sẵn trong Claude Desktop
+sketchup-mcp-1.7.0.mcpb        MCP server Node.js, chạy bằng Node có sẵn trong Claude Desktop
     |  TCP 127.0.0.1:9876 (chỉ trong máy)
     v
 SU MCP Bridge                  plugin Ruby trong SketchUp, tự bật khi mở SketchUp
@@ -71,16 +71,16 @@ Tải từ [bản phát hành mới nhất](https://github.com/2ez4gcx/sketchup-
 
 | File | Là gì |
 |---|---|
-| `sketchup-mcp-1.6.0.mcpb` | Extension cho Claude Desktop (file chính) |
-| `su_mcp-1.6.0.rbz` | Plugin SketchUp (SU MCP Bridge), chỉ cần khi cài tay |
-| `SketchUpMCP_v1.6.0.zip` | Trọn bộ: extension, plugin, hướng dẫn (HTML + PDF, tiếng Anh và tiếng Việt), câu lệnh mẫu, changelog, giấy phép |
-| `SketchUp-MCP-Guide-1.6.0.pdf` | Riêng hướng dẫn tiếng Anh |
+| `sketchup-mcp-1.7.0.mcpb` | Extension cho Claude Desktop (file chính) |
+| `su_mcp-1.7.0.rbz` | Plugin SketchUp (SU MCP Bridge), chỉ cần khi cài tay |
+| `SketchUpMCP_v1.7.0.zip` | Trọn bộ: extension, plugin, hướng dẫn (HTML + PDF, tiếng Anh và tiếng Việt), câu lệnh mẫu, changelog, giấy phép |
+| `SketchUp-MCP-Guide-1.7.0.pdf` | Riêng hướng dẫn tiếng Anh |
 
 ## Cài đặt
 
-1. **Cài extension vào Claude Desktop**: *Settings > Extensions* → kéo thả `sketchup-mcp-1.6.0.mcpb` vào cửa sổ, hoặc *Advanced settings > Install Extension...* rồi chọn file → *Install*. Bản này chưa ký số nên Claude có thể cảnh báo *unsigned*: chỉ cài file lấy từ bản phát hành của dự án hoặc tự build. Bản Claude từ Microsoft Store không mở được file `.mcpb` bằng nhấp đúp, hãy cài qua Settings.
+1. **Cài extension vào Claude Desktop**: *Settings > Extensions* → kéo thả `sketchup-mcp-1.7.0.mcpb` vào cửa sổ, hoặc *Advanced settings > Install Extension...* rồi chọn file → *Install*. Bản này chưa ký số nên Claude có thể cảnh báo *unsigned*: chỉ cài file lấy từ bản phát hành của dự án hoặc tự build. Bản Claude từ Microsoft Store không mở được file `.mcpb` bằng nhấp đúp, hãy cài qua Settings.
 2. **Cài SU MCP Bridge vào SketchUp**: trong chat mới, gõ *"Cài SU MCP Bridge vào SketchUp"* (Claude gọi `install_sketchup_bridge`, bấm *Allow*). Hoặc cài tay: *Extensions > Extension Manager > Install Extension* (SketchUp 2017-2020: *Window > Extension Manager*) → chọn `su_mcp.rbz`. Nếu SketchUp không nạp plugin chưa ký số, chọn *Approve Unidentified Extensions* trong Extension Loading Policy (nếu quy định IT cho phép).
-3. **Thoát hẳn SketchUp rồi mở lại**, vào *Extensions > SU MCP Bridge > Status* phải thấy `SU MCP Bridge v1.6.0: RUNNING on 127.0.0.1:9876`. Sau đó gõ "Ping SketchUp" trong Claude.
+3. **Thoát hẳn SketchUp rồi mở lại**, vào *Extensions > SU MCP Bridge > Status* phải thấy `SU MCP Bridge v1.7.0: RUNNING on 127.0.0.1:9876`. Sau đó gõ "Ping SketchUp" trong Claude.
 
 Tùy chọn trong *Settings > Extensions > SketchUp MCP > Configure*: cổng (mặc định 9876) và thời gian chờ mỗi lệnh (mặc định 120 giây). Đổi cổng thì phải đổi cả trong SketchUp (*Extensions > SU MCP Bridge > Change port...*) và khởi động lại SketchUp. Khi cập nhật, luôn cập nhật **cả hai** phần.
 
@@ -90,7 +90,7 @@ Câu lệnh mẫu: [`mcpb/release-docs/vi/CAU_LENH_MAU.txt`](mcpb/release-docs/v
 
 Cài một chạm bằng file `.mcpb` chỉ có trên Claude Desktop. Server là MCP chuẩn (stdio) nên ứng dụng nào chạy được MCP server trên máy đều dùng được, nhưng cần cài **Node.js 18+**.
 
-1. Giải nén file `.mcpb` (thực chất là file zip): `mkdir C:\Tools\sketchup-mcp` rồi `tar -xf sketchup-mcp-1.6.0.mcpb -C C:\Tools\sketchup-mcp` (chạy trong Command Prompt/PowerShell, không dùng Git Bash; hoặc đổi đuôi file thành `.zip` rồi *Extract All*). Server nằm ở `C:/Tools/sketchup-mcp/server/index.mjs`.
+1. Giải nén file `.mcpb` (thực chất là file zip): `mkdir C:\Tools\sketchup-mcp` rồi `tar -xf sketchup-mcp-1.7.0.mcpb -C C:\Tools\sketchup-mcp` (chạy trong Command Prompt/PowerShell, không dùng Git Bash; hoặc đổi đuôi file thành `.zip` rồi *Extract All*). Server nằm ở `C:/Tools/sketchup-mcp/server/index.mjs`.
 2. Khai báo server trong ứng dụng (lệnh `node`, đối số là đường dẫn trên). Cấu hình mẫu cho từng ứng dụng: xem mục **Other MCP clients** trong [README.md](README.md#other-mcp-clients).
 3. Cài bridge vào SketchUp như bước 2–3 ở trên, rồi khởi động lại SketchUp.
 
@@ -105,10 +105,21 @@ Biến môi trường tùy chọn: `SKETCHUP_MCP_PORT` (mặc định 9876) và 
 
 Screenshot cần model đọc được ảnh. Nếu máy đã có một SketchUp MCP server khác tên `sketchup`, đặt tên khác cho server này (vd `sketchup-node`) để không bị trùng tool.
 
+## Giới hạn đã biết của bảng khối lượng
+
+Phần mềm đo đúng những gì được vẽ. Nó không biết phần nào bị vẽ thiếu hay vẽ sai chỗ, nên cần đối chiếu khối lượng với bản vẽ trước khi dùng. Các giới hạn đã biết:
+
+- **Ô mở** được nhận ra từ đường bao của tấm. Một mảng vá ở mép tường, hoặc hai phần nhô ra trên cùng một cạnh, có thể bị hiểu là ô mở. Ô mở bị đường nối tấm cắt ngang không hiện trong phần diễn giải (khối lượng vẫn đúng).
+- **Mặt bên lộ ra** (mặt bên hộp trần, thành bục) được tính khi không có gì nằm trong 50 mm phía trước và khoảng trống phía trước nằm trên một mặt sàn. Cạnh của lớp sàn dày đến 100 mm (lớp hoàn thiện dày, bục thấp) chỉ được tính khi nằm trên sàn hoàn thiện (tag có mã FL). Mỗi lần bóc thử tối đa 4000 mặt; kết quả cho biết số mặt bị bỏ qua.
+- **Tường cong hoặc gãy khúc vẽ thành khối đặc** được đo gần đúng bằng một nửa tổng mặt đứng, và dòng đó có ghi chú. Vẽ thành một lớp mặt thì được đo chính xác.
+- **Các phòng trùng tên** được cộng chung.
+- Bộ máy đo mới chỉ được thử trên SketchUp 2023 cho Windows.
+
 ## Lưu ý an toàn
 
-- **Chỉ trong máy**: bridge chỉ nghe trên `127.0.0.1`, máy khác trong mạng không kết nối được. Socket không có xác thực, nên chương trình khác chạy trên cùng máy vẫn gửi lệnh được khi bridge đang bật; muốn tắt trong phiên làm việc này, dùng *Extensions > SU MCP Bridge > Stop server* (lần mở SketchUp sau sẽ tự bật lại).
-- **Giữ chế độ hỏi xin phép**: không chọn "Always allow" cho `run_ruby`, `delete_entities`, `undo`, `save_model`, `open_model`, `new_model`, `export_file`, `export_png`, `export_for_render`, `interior_takeoff`, `purge_unused`, `create_scenes` (các lệnh xuất, và lệnh bóc khối lượng khi lưu CSV, có thể ghi đè file).
+- **Chỉ trong máy**: bridge chỉ nghe trên `127.0.0.1`, máy khác trong mạng không kết nối được. Từ bản 1.7, mọi lệnh phải kèm mã truy cập mà bridge ghi ra lúc khởi động trong thư mục plugin (`token_<port>.txt`), chỉ tài khoản Windows hoặc macOS của bạn đọc được, nên tài khoản khác trên cùng máy không gửi lệnh được. Chương trình chạy bằng chính tài khoản của bạn thì đọc được file đó, cũng như các file khác của bạn. Muốn tắt bridge trong phiên làm việc này, dùng *Extensions > SU MCP Bridge > Stop server* (lần mở SketchUp sau sẽ tự bật lại). Bridge 1.7 cần server 1.7: luôn cập nhật cả hai phần.
+- **Có thể tắt `run_ruby`**: trong Claude Desktop, *Settings > Extensions > SketchUp MCP > Allow run_ruby* (công cụ biến mất; ứng dụng khác: đặt `SKETCHUP_MCP_RUN_RUBY=false`). Trong SketchUp: *Extensions > SU MCP Bridge > Allow Ruby code (run_ruby)*. Nên tắt khi mở mô hình của người lạ: tên đối tượng trong mô hình là văn bản mà AI đọc.
+- **Giữ chế độ hỏi xin phép**: không chọn "Always allow" cho `run_ruby`, `delete_entities`, `undo`, `save_model`, `open_model`, `new_model`, `export_file`, `export_png`, `export_for_render`, `interior_takeoff`, `purge_unused`, `create_scenes` (các lệnh này ghi file; file có sẵn chỉ bị thay khi gọi với `overwrite=true`).
 - **`run_ruby` chạy code Ruby bất kỳ** trong SketchUp, không giới hạn thời gian. Đọc kỹ code trước khi cho phép; vòng lặp vô hạn sẽ làm SketchUp đứng và phải đóng bằng Task Manager.
 - **Mỗi lần sửa là một bước Undo**: sai thì <kbd>Ctrl</kbd>+<kbd>Z</kbd> hoặc nhờ Claude undo.
 - **Làm việc trên bản sao** của file dự án; `save_model` không có đường dẫn sẽ ghi đè file hiện tại.

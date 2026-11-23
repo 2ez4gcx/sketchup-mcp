@@ -22,6 +22,16 @@ mcpb/dist/
 *.dxf
 *.dwg
 *.log
+*.obj
+*.mtl
+*.fbx
+*.dae
+*.3ds
+*.stl
+*.csv
+*.rbz
+*.mcpb
+*.zip
 .env*
 .npmrc
 *.pem

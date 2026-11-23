@@ -3,7 +3,7 @@
   "manifest_version": "0.3",
   "name": "sketchup-mcp",
   "display_name": "SketchUp MCP",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "Lets Claude read, model, tag and check SketchUp models, take off interior quantities, make scenes, export for rendering and run Ruby (SketchUp 2017+).",
   "long_description": "Connects Claude to the open SketchUp model through the **SU MCP Bridge** extension (socket 127.0.0.1:9876).\n\n- No Python or Node.js install needed: runs on the Node.js built into Claude Desktop.\n- First time: ask Claude to run the `install_sketchup_bridge` tool (or install `su_mcp.rbz` via Extension Manager), then restart SketchUp.\n- Interior tag standard (FL floor, WL wall, CL ceiling, SK skirting, DR door, FN furniture, LT lighting...) a bill of quantities by tag and by room (`interior_takeoff`, CSV for Excel), rooms in one step (`create_room`), model and design checks (`check_model`, `check_design`) documentation scenes (`create_scenes`), detailed furniture (`insert_furniture`) and an export for Blender and other renderers (`export_for_render`).\n- Units: lengths in mm, areas in m², volumes in m³. Every model edit is one Undo step.\n- If another server named `\"sketchup\"` (for example an older SketchUp MCP) is declared in `claude_desktop_config.json`, remove that entry after installing this extension to avoid duplicate tools.",
   "author": {
@@ -26,7 +26,8 @@
       ],
       "env": {
         "SKETCHUP_MCP_PORT": "${user_config.port}",
-        "SKETCHUP_MCP_TIMEOUT": "${user_config.timeout}"
+        "SKETCHUP_MCP_TIMEOUT": "${user_config.timeout}",
+        "SKETCHUP_MCP_RUN_RUBY": "${user_config.allow_run_ruby}"
       }
     }
   },
@@ -212,6 +213,13 @@
       "default": 120,
       "min": 5,
       "max": 3600,
+      "required": false
+    },
+    "allow_run_ruby": {
+      "type": "boolean",
+      "title": "Allow run_ruby",
+      "description": "Let the AI run Ruby code in SketchUp when no other tool can do the job. Turn it off to remove the run_ruby tool (for example when you open models from people you do not know).",
+      "default": true,
       "required": false
     }
   }

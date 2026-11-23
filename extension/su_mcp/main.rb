@@ -3,7 +3,9 @@
 #   {"id": 1, "cmd": "model_info", "params": {...}}\n
 # and receives 1 JSON line back:
 #   {"id": 1, "ok": true, "result": ...}\n   or   {"id": 1, "ok": false, "error": "..."}\n
-# Listens on 127.0.0.1 only (never exposed to the network).
+# Listens on 127.0.0.1 only (never exposed to the network). Every command except ping must carry the access token the
+# bridge writes at start into <Plugins>/su_mcp/token_<port>.txt, a file only this user's programs can read
+# (menu Extensions > SU MCP Bridge > Require access token turns the check off).
 # Exchange units: mm (length), m2 (area), m3 (volume).
 # Log (command name, duration, errors; parameters/code are not logged - error messages may contain file names): <Sketchup.temp_dir>/su_mcp.log - menu Extensions > SU MCP Bridge > Open log file.
 # The source keeps Ruby 2.2 syntax so it runs on SketchUp 2017 -> 2026.
@@ -13,10 +15,15 @@ require 'json'
 require 'stringio'
 require 'tmpdir'
 require 'fileutils'
+begin
+  require 'securerandom'
+rescue LoadError
+  nil
+end
 
 module KhuongDoan
   module SuMcp
-    VERSION      = '1.6.0'.freeze
+    VERSION      = '1.7.0'.freeze
     HOST         = '127.0.0.1'.freeze
     DEFAULT_PORT = 9876
     IN_TO_MM     = 25.4
@@ -45,6 +52,44 @@ module KhuongDoan
     @busy       = false unless defined?(@busy)
     @last_error = nil unless defined?(@last_error)
     @last_cmd   = nil unless defined?(@last_cmd)
+    @token      = nil unless defined?(@token)
+
+    class BadToken < StandardError; end
+
+    # ------------------------------------------------------------------
+    # Access: a token for this session, and the switch for run_ruby (both kept in the SketchUp preferences)
+    # ------------------------------------------------------------------
+    def self.auth_on?
+      Sketchup.read_default('SuMcp', 'auth', true) != false
+    end
+
+    def self.ruby_on?
+      Sketchup.read_default('SuMcp', 'run_ruby', true) != false
+    end
+
+    def self.token_path
+      dir = Sketchup.find_support_file('Plugins')
+      dir ? File.join(dir, 'su_mcp', "token_#{PORT}.txt") : nil
+    end
+
+    # A new token, written where the MCP server of the same user reads it. Without the file there is no check
+    # (the server could not learn the token).
+    def self.make_token
+      @token = nil
+      path = token_path
+      unless auth_on? && path
+        File.delete(path) if path && File.exist?(path)
+        return nil
+      end
+      tok = defined?(SecureRandom) ? SecureRandom.hex(24) : Array.new(48) { rand(16).to_s(16) }.join
+      FileUtils.mkdir_p(File.dirname(path))
+      File.open(path, 'w') { |f| f.write(tok) }
+      @token = tok
+    rescue StandardError => e
+      @token = nil
+      log("token_failed #{e.class}: #{e.message}")
+      nil
+    end
 
     # ------------------------------------------------------------------
     # Server lifecycle
@@ -58,6 +103,7 @@ module KhuongDoan
       return true if running?
       @server = TCPServer.new(HOST, PORT)
       @timer  = UI.start_timer(0.1, true) { poll }
+      make_token
       @last_error = nil
       status_text("running #{HOST}:#{PORT}")
       log("start #{HOST}:#{PORT} bridge=#{VERSION} sketchup=#{Sketchup.version} ruby=#{RUBY_VERSION}")
@@ -91,6 +137,12 @@ module KhuongDoan
         nil
       end
       @server = nil
+      begin
+        File.delete(token_path) if @token && token_path && File.exist?(token_path)
+      rescue StandardError
+        nil
+      end
+      @token = nil
       status_text('stopped')
       log('stop')
       puts '[SU MCP] Stopped.'
@@ -148,6 +200,14 @@ module KhuongDoan
           req_id = req['id']
           cmd = req['cmd'].to_s
           params = req['params'] || {}
+          if @token && cmd != 'ping' && req['token'].to_s != @token
+            raise BadToken, 'This SketchUp bridge only runs commands that carry its access token. Update the SketchUp MCP ' \
+                  'server (the Claude extension) to 1.7 or later; or turn the check off in SketchUp: Extensions > SU MCP ' \
+                  'Bridge > Require access token.'
+          end
+          if req['expires'].is_a?(Numeric) && Time.now.to_f * 1000 > req['expires']
+            raise "Command '#{cmd}' was not run: it waited in SketchUp past its time limit (the client had given up)"
+          end
           code_size = params['code'].to_s.size if cmd == 'run_ruby'
           resp = { 'id' => req_id, 'ok' => true, 'result' => dispatch(cmd, params) }
         rescue NoMemoryError, SignalException
@@ -156,6 +216,7 @@ module KhuongDoan
           full = e.backtrace || []
           bt = (full[0, 5] + full.grep(/\Amcp_run_ruby:/).first(3)).uniq.map { |l| utf8(l) }
           resp = { 'id' => req_id, 'ok' => false, 'error' => utf8("#{e.class}: #{e.message}"), 'backtrace' => bt }
+          resp['code'] = 'BAD_TOKEN' if e.is_a?(BadToken) # refused before anything ran
         end
         out = begin
           JSON.generate(resp)
@@ -230,6 +291,7 @@ module KhuongDoan
         c, t, ok, ms = @last_cmd
         lines << "Last command: #{c} at #{t.strftime('%H:%M:%S')} (#{ok ? 'OK' : 'ERROR'}, #{ms} ms)"
       end
+      lines << "Access token: #{@token ? 'required' : 'not required'}; run_ruby: #{ruby_on? ? 'allowed' : 'turned off'}"
       lines << "Log file: #{log_path}"
       lines.join("\n")
     end
@@ -504,7 +566,7 @@ module KhuongDoan
     # ------------------------------------------------------------------
     def self.cmd_ping(_p)
       r = { 'bridge' => VERSION, 'sketchup' => Sketchup.version, 'ruby' => RUBY_VERSION,
-            'port' => PORT, 'model' => utf8(model.title) }
+            'port' => PORT, 'model' => utf8(model.title), 'access_token' => @token ? true : false, 'run_ruby' => ruby_on? }
       r['deferred'] = { 'id' => @deferred['id'], 'state' => @deferred['state'] } if @deferred
       r
     end
@@ -724,20 +786,26 @@ module KhuongDoan
       c[l] = ok
     end
 
+    # The state of one takeoff (also built by the offline tests of the measuring engine).
+    def self.mt_ctx(p, ratio, max_t)
+      { 'hidden' => p['include_hidden'] ? true : false, 'ratio' => ratio, 'max_t' => max_t.mm, 'rows' => {},
+        'codes' => {}, 'exclude' => Array(p['exclude_codes']).map { |c| c.to_s.upcase }, 'excluded' => Hash.new(0),
+        'untagged' => {}, 'skipped' => {}, 'shown' => {}, 'wrap' => {}, 'holds' => {}, 'pure' => {}, 'runs' => {},
+        # openings smaller than this (m2) are reported as "small": the server keeps them in the quantity
+        'min_ded' => [p['min_deduction_m2'].to_f, 0.0].max, 'detail' => p['detail'] ? true : false,
+        # codes measured as surfaces (nil = every tag); codes of the doors and windows looked for in uncut walls
+        'real_codes' => p['real_codes'].is_a?(Array) ? p['real_codes'].map { |c| c.to_s.upcase } : nil,
+        'open_codes' => Array(p['opening_codes']).map { |c| c.to_s.upcase },
+        'rays' => 0, 'boxes' => {}, 'walls' => [], 'doors' => [], 'room_recs' => {},
+        'room_groups' => Hash.new(0), 'capped' => {} }
+    end
+
     def self.cmd_measure_tags(p)
       ratio = p['thin_ratio'].to_f
       ratio = 0.5 unless ratio > 0 && ratio < 1
       max_t = p['max_thickness_mm'].to_f
       max_t = 600.0 unless max_t > 0
-      ctx = { 'hidden' => p['include_hidden'] ? true : false, 'ratio' => ratio, 'max_t' => max_t.mm, 'rows' => {},
-              'codes' => {}, 'exclude' => Array(p['exclude_codes']).map { |c| c.to_s.upcase }, 'excluded' => Hash.new(0),
-              'untagged' => {}, 'skipped' => {}, 'shown' => {}, 'wrap' => {}, 'holds' => {}, 'pure' => {}, 'runs' => {},
-              # openings smaller than this (m2) are reported as "small": the server keeps them in the quantity
-              'min_ded' => [p['min_deduction_m2'].to_f, 0.0].max, 'detail' => p['detail'] ? true : false,
-              # codes measured as surfaces (nil = every tag); codes of the doors and windows looked for in uncut walls
-              'real_codes' => p['real_codes'].is_a?(Array) ? p['real_codes'].map { |c| c.to_s.upcase } : nil,
-              'open_codes' => Array(p['opening_codes']).map { |c| c.to_s.upcase },
-              'rays' => 0, 'boxes' => {}, 'walls' => [], 'doors' => [], 'room_recs' => {} }
+      ctx = mt_ctx(p, ratio, max_t)
       sel = p['selection_only'] ? true : false
       roots = sel ? model.selection.to_a : model.entities.to_a
       raise ArgumentError, 'selection_only=true but nothing is selected' if sel && roots.empty?
@@ -764,15 +832,22 @@ module KhuongDoan
       mt_walk(roots, tr, key, counted, ctx, nil, room, nil, false, nil, true)
       mt_finish_runs(ctx)
       mt_uncut(ctx)
+      # rooms with the same name are one room in the table: what create_room recorded for one of them is no check
+      same = ctx['room_groups'].select { |n, c| c > 1 && ctx['rows'].any? { |(_t, rm), _a| rm == n } }
+      same.each_key { |n| ctx['room_recs'].delete(n) }
       # rows are kept per [tag, room]; the per-tag rows add up the rooms
       per_tag = {}
       ctx['rows'].each { |(tag, _room), a| mt_merge(per_tag[tag] ||= mt_new, a) }
+      ctx['capped']['pieces'] = true if per_tag.values.any? { |a| a['pieces'].size >= 300 }
       order = lambda { |k| [k == 'Untagged' ? 1 : 0, k] }
       r = { 'tags' => per_tag.keys.sort_by(&order).map { |k| mt_out(per_tag[k]).merge('tag' => k) },
             'untagged' => ctx['untagged'].values, 'hidden' => ctx['skipped'].values, 'excluded' => ctx['excluded'],
             'thin_ratio' => ratio, 'max_thickness_mm' => max_t, 'selection_only' => sel,
             'min_deduction_m2' => ctx['min_ded'], 'exposure_tests' => [ctx['rays'], MAX_RAYS].min,
             'exposure_tests_skipped' => [ctx['rays'] - MAX_RAYS, 0].max,
+            'duplicate_rooms' => same.map { |n, c| { 'room' => n, 'groups' => c } },
+            # lists that were cut short: doors (2000), walls (5000) for the uncut-wall check, pieces (300 per row)
+            'capped' => ctx['capped'].keys,
             # what create_room worked out for the rooms it built (a cross-check for the measured quantities)
             'room_records' => ctx['room_recs'].map { |name, q| q.merge('room' => name) } }
       if p['by_room']
@@ -933,6 +1008,7 @@ module KhuongDoan
           # untagged assembly; any other one is transparent
           if !nm.empty? && (room.empty? || pure) && (culprit.nil? || mt_holds_code?(defn, ctx))
             rname = room.empty? ? nm : "#{room} / #{nm}"
+            ctx['room_groups'][rname] += 1
             rec = e.get_attribute('su_mcp', 'room_q')
             if rec.is_a?(String) && !ctx['room_recs'].key?(rname)
               q = begin
@@ -1064,7 +1140,7 @@ module KhuongDoan
       # (a rotated curtain, or one drawn flat and stood up, keeps its real size).
       bb = e.definition.bounds
       return if bb.empty?
-      if ctx['open_codes'].include?(mt_code(key, ctx)) && ctx['doors'].size < 2000
+      if ctx['open_codes'].include?(mt_code(key, ctx)) && (ctx['doors'].size < 2000 || !(ctx['capped']['doors'] = true))
         ctx['doors'] << { 'c' => bb.center.transform(wt), 'id' => e.entityID, 'name' => name, 'tag' => key }
       end
       m = wt.to_a
@@ -1087,6 +1163,7 @@ module KhuongDoan
     NEAR       = 50 / 25.4  # something within 50 mm in front of a face hides it
     RUN_PACK   = 30 / 25.4  # two parts of a run at the same height are one only when packed this close
     MAX_RAYS   = 4000       # exposure tests per takeoff
+    EDGE_H     = 100 / 25.4 # the side of a floor piece up to 100 mm high: a step only over a finished floor
 
     # The faces of a piece turned one consistent way (as Orient Faces does), whatever way each was drawn: +1 / -1 per
     # face, following the edges two of its faces share, from the largest face of each connected part.
@@ -1137,7 +1214,7 @@ module KhuongDoan
     # outwards - something within NEAR, or the back of a face (the ray started inside a solid standing against the
     # face), hides it; then down from the space in front of it - with nothing below (no floor: the thickness of a wall
     # that is not modelled, outside the room) it does not look into a room. An open piece is tried both ways.
-    def self.mt_exposed?(f, tr, w, both, ctx)
+    def self.mt_exposed?(f, tr, w, both, ctx, over_floor = false)
       return false if (ctx['rays'] += 1) > MAX_RAYS
       mesh = f.mesh(0)
       pts = mesh.polygon_points_at(1)
@@ -1152,10 +1229,25 @@ module KhuongDoan
           if ent.is_a?(Sketchup::Face)
             t = IDENTITY
             hit[1][0...-1].each { |x| t = t * x.transformation if x.respond_to?(:transformation) }
-            next false if dot(ent.normal.transform(t), dir) > 0.2
+            # (a single face drawn inside out across the room has free edges: it is not a solid against this one)
+            next false if dot(ent.normal.transform(t), dir) > 0.2 && ent.edges.none? { |e| e.faces.size < 2 }
           end
         end
-        !model.raytest([c.offset(dir, NEAR + 10.mm), Geom::Vector3d.new(0, 0, -1)], true).nil?
+        down = Geom::Vector3d.new(0, 0, -1)
+        below = model.raytest([c.offset(dir, NEAR + 10.mm), down], true)
+        next false if below.nil?
+        next true unless over_floor
+        # the edge of a floor layer: bare structure below it is the gap at a wall, a floor finish is a room; a piece of
+        # furniture or any other tagged object in between is looked through
+        found = false
+        4.times do
+          codes = below[1].map { |x| x.respond_to?(:layer) && !untagged?(x.layer) ? mt_code(utf8(x.layer.name), ctx) : nil }.compact
+          found = codes.include?('FL')
+          break if found || codes.empty? || codes.include?('EX')
+          below = model.raytest([below[0].offset(down, 1.mm), down], true)
+          break if below.nil?
+        end
+        found
       end
     rescue StandardError
       false
@@ -1234,6 +1326,10 @@ module KhuongDoan
       strip = faces.each_with_index.map do |f, i|
         mt_strip?(areas[i] / IN2_TO_M2, f.edges.inject(0.0) { |s, e2| s + pos[e2.start].distance(pos[e2.end]) }) &&
           mt_neighbours(faces, idx, i).none? { |j| dot(normals[i], normals[j]).abs > 0.5 }
+      end
+      if strip.all? && !faces.empty? # a narrow piece (a threshold, a slat): its widest side is the surface, the rest its edges
+        wide = (0...faces.size).max_by { |i| areas[i] }
+        strip = faces.each_index.map { |i| dot(normals[i], normals[wide]).abs <= 0.99 }
       end
       # one consistent orientation: outwards for a closed piece (its volume is positive); for an open piece with faces
       # looking both up and down (a board without its edges) the upper faces look up
@@ -1372,20 +1468,40 @@ module KhuongDoan
       up = down = ru = rd = box_low = box_tall = 0.0
       res = {}
       pend = []
+      wrapped = upright && !thin && !closed
+      open_skin = false
+      if upright && curved && !closed
+        vx = vy = tot = 0.0
+        faces.each_index do |i|
+          next if strip[i] || normals[i].z.abs >= 0.17
+          vx += areas[i] * normals[i].x
+          vy += areas[i] * normals[i].y
+          tot += areas[i]
+        end
+        open_skin = tot > 0 && Math.sqrt(vx * vx + vy * vy) > 0.3 * tot
+      end
+      lining = thin && owner && owner.get_attribute('su_mcp', 'part') == 'reveal'
+      # the faces measured as the wall side of an upright piece (below): not also its risers or exposed sides
+      as_wall = faces.each_index.map do |i|
+        next false if strip[i] || lining || !upright || normals[i].z.abs >= 0.17
+        wrapped || (thin && (curved || dot(normals[i], n).abs > 0.99))
+      end
       faces.each_index do |i|
         if cls[i] == :u
           up += areas[i]
         elsif cls[i] == :d
           down += areas[i]
         elsif cls[i] == :v
+          next if as_wall[i]
           nb = mt_neighbours(faces, idx, i).map { |j| cls[j] }
           hu = nb.include?(:u)
           hd = nb.include?(:d)
           if hu && hd
             next if thin && upright
             zs = faces[i].vertices.map { |vx| pos[vx].z }
-            if mt_exposed?(faces[i], tr, normals[i], !closed, ctx)
-              zs.max - zs.min <= FASCIA_LOW ? box_low += areas[i] : box_tall += areas[i]
+            hgt = zs.max - zs.min
+            if mt_exposed?(faces[i], tr, normals[i], !closed, ctx, !upright && hgt <= EDGE_H && code == 'FL')
+              hgt <= FASCIA_LOW ? box_low += areas[i] : box_tall += areas[i]
             end
           elsif hu
             res[i] = :u
@@ -1451,10 +1567,9 @@ module KhuongDoan
       end
       # an open piece that is not a thin board but stands upright (a casing wrapped round a column, two walls of a
       # corner drawn as one skin): every upright face is finished surface, once
-      wrapped = upright && !thin && !closed
       wrap = 0.0
       faces.each_index { |i| wrap += areas[i] if !strip[i] && normals[i].z.abs < 0.17 } if wrapped
-      reveal = 0.0 if wrapped
+      reveal = 0.0 if wrapped || open_skin
       a['reveal'] += reveal
 
       # ---- openings in the main side of a thin piece: holes (inner loops no face of the piece fills) and notches cut
@@ -1489,7 +1604,7 @@ module KhuongDoan
           end
           mt_notches(f.outer_loop, pos, u, v, lo1, hi1, lo2, hi2).each { |x| ops << x * IN2_TO_M2 }
         end
-        small = ops.select { |x| x < ctx['min_ded'] }
+        small = ops.select { |x| x < ctx['min_ded'] - 1e-6 }
         targets = ['os']
         targets << 'op' if in_plan
         targets << 'ow' if upright && !curved
@@ -1507,6 +1622,8 @@ module KhuongDoan
       h = zmax - zmin
       dims = [t, su, sv]
       li = (0..2).max_by { |i| dims[i] }
+      # a short nib of skirting: along the wall (a taller piece on the tag, a trim up a jamb, keeps its longest size)
+      li = 1 if thin && upright && !curved && code == 'SK' && su > FLAT_TOL && sv <= 300 / 25.4
       len = dims[li]
       ax = [n, u, v][li]
       rlo = [lo0, lo1, lo2][li]
@@ -1542,9 +1659,11 @@ module KhuongDoan
       if thin && owner && owner.get_attribute('su_mcp', 'part') == 'reveal'
         a['reveal'] += one # a lining create_room put in an opening: a reveal, whichever way it lies
       elsif thin
-        if upright && curved
+        if upright && curved && !open_skin
           one = side / 2.0
           a['not_straight'] << label.call if a['not_straight'].size < 10
+        elsif upright && curved # a skin: every upright face, once
+          one = faces.each_index.inject(0.0) { |s, i| !strip[i] && normals[i].z.abs < 0.17 ? s + areas[i] : s }
         end
         a['sheet'] += one
         if upright
@@ -1580,12 +1699,13 @@ module KhuongDoan
         end
       end
       # walls remembered for the doors and windows standing in them (mt_uncut)
-      if thin && upright && !curved && one > 0.5 && ctx['walls'].size < 5000 && !ctx['open_codes'].include?(code)
+      if thin && upright && !curved && one > 0.5 && !ctx['open_codes'].include?(code) &&
+         (ctx['walls'].size < 5000 || !(ctx['capped']['walls'] = true))
         ctx['walls'] << { 'acc' => a, 'label' => label.call, 'n' => n, 'lo0' => lo0, 'hi0' => hi0, 'u' => u, 'lo1' => lo1, 'hi1' => hi1,
                           'v' => v, 'lo2' => lo2, 'hi2' => hi2, 'inv' => tr.inverse,
                           'faces' => (0...faces.size).select { |i| dot(normals[i], n).abs > 0.99 }.map { |i| [faces[i], dot(pos[faces[i].vertices.first], n)] } }
       end
-      if ctx['detail'] && a['pieces'].size < 300
+      if ctx['detail'] && (a['pieces'].size < 300 || !(ctx['capped']['pieces'] = true))
         a['pieces'] << label.call.merge(
           'upright' => upright, 'thin' => thin, 'closed' => closed, 'one_side_m2' => one.round(4),
           'openings_m2' => ops.map { |x| x.round(4) }, 'up_m2' => up.round(4), 'down_m2' => down.round(4),
@@ -2153,6 +2273,10 @@ module KhuongDoan
     def self.cmd_run_ruby(p)
       code = p['code'].to_s
       raise ArgumentError, 'Missing code' if code.strip.empty?
+      unless ruby_on?
+        raise ArgumentError, 'run_ruby is turned off in SketchUp (Extensions > SU MCP Bridge > Allow Ruby code (run_ruby)): ' \
+                             'use the other tools, or ask the user to turn it on.'
+      end
       return run_ruby_later(code) if p['deferred'] == true
       out = StringIO.new
       old = $stdout
@@ -2475,7 +2599,8 @@ module KhuongDoan
               rg = room_edge_group(ents, pts[i], pts[(i + 1) % n], ffl)
               lined.each do |o|
                 top = [o['top'], wall_h].min
-                head = o['top'] < height - 0.5 # an opening up to the ceiling has no head
+                # an opening up to the ceiling, or higher than the wall finish (a wainscot), has no head
+                head = o['top'] < height - 0.5 && o['top'] <= wall_h + 0.5
                 boards = [[o['from'], o['from'] + wall_t, o['sill'], top], [o['to'] - wall_t, o['to'], o['sill'], top]]
                 boards << [o['from'] + wall_t, o['to'] - wall_t, top - wall_t, top] if head
                 boards << [o['from'] + wall_t, o['to'] - wall_t, o['sill'], o['sill'] + wall_t] if o['kind'] != 'door' && o['sill'] > 0.5
@@ -2736,6 +2861,7 @@ module KhuongDoan
       ctx = { 'codes' => {} }
       before = [m.definitions.size, m.materials.size]
       kept = []
+      unremovable = []
       removed_tags = 0
       with_operation('purge unused') do |mm|
         mm.definitions.purge_unused
@@ -2747,12 +2873,18 @@ module KhuongDoan
             kept << utf8(l.name)
             next
           end
+          unless mm.layers.respond_to?(:remove) # SketchUp before 2020
+            unremovable << utf8(l.name)
+            next
+          end
           mm.layers.remove(l)
           removed_tags += 1
         end
       end
       { 'purged' => { 'definitions' => before[0] - m.definitions.size, 'materials' => before[1] - m.materials.size,
-                      'tags' => removed_tags }, 'kept_empty_standard_tags' => kept }
+                      'tags' => removed_tags }, 'kept_empty_standard_tags' => kept }.merge(
+                        unremovable.empty? ? {} : { 'unused_tags_not_removed' => unremovable,
+                                                    'note' => 'This SketchUp version cannot remove tags from a script: delete them in the Tags panel.' })
     end
 
     # ------------------------------------------------------------------
@@ -4153,6 +4285,13 @@ module KhuongDoan
       menu.add_item('Status') { UI.messagebox(status_report) }
       menu.add_item('Open log file') { open_log }
       menu.add_item('Change port...') { change_port_dialog }
+      id_rb = menu.add_item('Allow Ruby code (run_ruby)') { Sketchup.write_default('SuMcp', 'run_ruby', !ruby_on?) }
+      menu.set_validation_proc(id_rb) { ruby_on? ? MF_CHECKED : MF_UNCHECKED }
+      id_au = menu.add_item('Require access token') do
+        Sketchup.write_default('SuMcp', 'auth', !auth_on?)
+        make_token if running?
+      end
+      menu.set_validation_proc(id_au) { auth_on? ? MF_CHECKED : MF_UNCHECKED }
       file_loaded(__FILE__)
       start
     end

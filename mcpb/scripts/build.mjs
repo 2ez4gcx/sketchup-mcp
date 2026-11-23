@@ -18,7 +18,8 @@ const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
 const loaderRb = fs.readFileSync(path.join(EXT, 'su_mcp.rb'));
 const mainRb = fs.readFileSync(path.join(EXT, 'su_mcp', 'main.rb'));
-const version = checkVersions(pkg.version, manifest.version, mainRb.toString('utf8'), loaderRb.toString('utf8'));
+const lock = JSON.parse(fs.readFileSync(path.join(ROOT, 'package-lock.json'), 'utf8'));
+const version = checkVersions(pkg.version, manifest.version, mainRb.toString('utf8'), loaderRb.toString('utf8'), lock.version ?? null);
 
 fs.rmSync(STAGE, { recursive: true, force: true });
 fs.mkdirSync(path.join(STAGE, 'server'), { recursive: true });

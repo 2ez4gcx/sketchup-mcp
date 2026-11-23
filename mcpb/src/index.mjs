@@ -133,6 +133,8 @@ function envNumber(key, def, min, max) {
 }
 
 const HOST = envValue('SKETCHUP_MCP_HOST') ?? '127.0.0.1';
+// run_ruby can be left out of the tools (extension setting "Allow run_ruby", or SKETCHUP_MCP_RUN_RUBY=false)
+const RUN_RUBY = !/^(false|0|off|no)$/i.test(envValue('SKETCHUP_MCP_RUN_RUBY') ?? 'true');
 const PORT = Math.round(envNumber('SKETCHUP_MCP_PORT', 9876, 1, 65535));
 const TIMEOUT = envNumber('SKETCHUP_MCP_TIMEOUT', 120, 1, 3600);
 const CONNECT_TIMEOUT_MS = 5000;
@@ -161,10 +163,52 @@ function call(cmd, params = {}, label = cmd) {
   return exclusive(() => sendNow(cmd, params, label));
 }
 
-/** Send one command immediately, without queueing. Only call inside exclusive(). */
-function sendNow(cmd, params = {}, label = cmd) {
+// The bridge (1.7+) writes an access token at start into <Plugins>/su_mcp/token_<port>.txt of the SketchUp version
+// that is running; every command except ping must carry it. Read when the bridge asks for it, newest file first.
+let bridgeToken = envValue('SKETCHUP_MCP_TOKEN');
+async function tokenCandidates() {
+  const root = sketchupUserRoot();
+  if (!root) return [];
+  const found = [];
+  for (const v of await listSketchUpVersions(root)) {
+    const file = path.join(root, `SketchUp ${v}`, 'SketchUp', 'Plugins', 'su_mcp', `token_${PORT}.txt`);
+    try {
+      const [st, s] = await Promise.all([fs.stat(file), fs.readFile(file, 'utf8')]);
+      if (s.trim()) found.push({ token: s.trim(), at: st.mtimeMs });
+    } catch {
+      // no bridge with a token in this version
+    }
+  }
+  return found.sort((a, b) => b.at - a.at).map((x) => x.token);
+}
+
+/** Send one command immediately, without queueing. Only call inside exclusive(). A command the bridge refuses for
+ *  its token has not run: it is sent again with the token read from the bridge's file. */
+async function sendNow(cmd, params = {}, label = cmd) {
+  try {
+    return await sendOnce(cmd, params, label, bridgeToken);
+  } catch (e) {
+    if (!e.badToken) throw e;
+    for (const t of await tokenCandidates()) {
+      if (t === bridgeToken) continue;
+      try {
+        const r = await sendOnce(cmd, params, label, t);
+        bridgeToken = t;
+        return r;
+      } catch (e2) {
+        if (!e2.badToken) throw e2;
+      }
+    }
+    throw new SketchUpError('SketchUp refused the command: this server could not read the access token of the bridge ' +
+      `(<SketchUp Plugins folder>/su_mcp/token_${PORT}.txt). Check that SketchUp runs as the same user, or turn the check off ` +
+      'in SketchUp: Extensions > SU MCP Bridge > Require access token.');
+  }
+}
+
+function sendOnce(cmd, params, label, token) {
   const clean = Object.fromEntries(Object.entries(params).filter(([, v]) => v !== undefined && v !== null));
-  const data = JSON.stringify({ id: nextId++, cmd, params: clean }) + '\n';
+  // expires: SketchUp does not run a command that reaches it after this server has stopped waiting for it
+  const data = JSON.stringify({ id: nextId++, cmd, params: clean, expires: Date.now() + TIMEOUT * 1000, ...(token ? { token } : {}) }) + '\n';
 
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -252,6 +296,12 @@ function sendNow(cmd, params = {}, label = cmd) {
           const bt = Array.isArray(resp && resp.backtrace)
             ? resp.backtrace.map(String).filter((l) => l.startsWith('mcp_run_ruby:')).slice(0, 3)
             : [];
+          if (resp && resp.code === 'BAD_TOKEN') { // refused before anything ran
+            const e = new SketchUpError(msg);
+            e.badToken = true;
+            finish(e);
+            return;
+          }
           if (bt.length) msg += `\n(Location in run_ruby code: ${bt.join(' | ')})`;
           if (/Unsupported command/.test(msg)) {
             msg += ` The bridge in SketchUp may be older than MCP server v${VERSION} (bundled bridge v${BRIDGE_VERSION}): ` +
@@ -276,7 +326,8 @@ const server = new McpServer(
       'Controls the open SketchUp model through the "SU MCP Bridge" extension (127.0.0.1). Working rules:',
       '1. Units: lengths in mm, areas in m², volumes in m³, angles in degrees; Z is up; coordinates [x,y,z] in mm.',
       '2. Before working, call model_info (plus selection_info when the user says "the selected ..."). On a connection error: call ping; if the bridge is not installed, call install_sketchup_bridge.',
-      '3. Prefer the dedicated tools; use run_ruby only when no tool can do the job.',
+      RUN_RUBY ? '3. Prefer the dedicated tools; use run_ruby only when no tool can do the job.'
+        : '3. Use the dedicated tools (run_ruby is turned off in this setup).',
       '4. After every edit, read bounds_mm in the result; after a large change, take a screenshot to check.',
       '5. If the result is wrong, call undo right away and redo it with corrected parameters; do not stack fixes on wrong geometry.',
       '6. Ids are only valid in the current SketchUp session (they change after open_model or a restart); take ids from tool results, never guess.',
@@ -404,7 +455,7 @@ const CSV_TEXT = {
       'Wall area, one side (m²)', 'Sheet area, one side (m²)', 'Vertical faces (m²)', 'Length (m)', 'Width x height (m²)', 'Volume (m³)',
       'Gross (m²)', 'Deducted (m²)', 'Openings', 'Not deducted (m²)', 'Vertical parts / reveals (m²)', 'Items', 'Warnings'],
     unit: { m2: 'm²', m: 'm', pcs: 'pcs', m3: 'm³' },
-    total: 'Total', no_room: '(no room)',
+    total: 'Total', no_room: '(no room)', remark: 'Note',
     measure: { plan_area: 'floor/ceiling area', wall_area: 'wall area, one side', sheet_area: 'one side', side_area: 'vertical faces',
       length: 'length', elevation_area: 'width x height', count: 'count', volume: 'volume' },
     work: { gross: 'gross', openings: 'openings', kept: 'small openings not deducted', vertical: 'vertical parts', reveals: 'returns and reveals' },
@@ -415,7 +466,7 @@ const CSV_TEXT = {
       'Diện tích tường, một mặt (m²)', 'Diện tích tấm, một mặt (m²)', 'Tổng mặt đứng (m²)', 'Chiều dài (m)', 'Rộng x cao (m²)', 'Thể tích (m³)',
       'Tổng trước khi trừ (m²)', 'Đã trừ (m²)', 'Số ô mở', 'Không trừ (m²)', 'Mặt đứng / má cửa (m²)', 'Chi tiết', 'Cảnh báo'],
     unit: { m2: 'm²', m: 'md', pcs: 'cái', m3: 'm³' },
-    total: 'Tổng', no_room: '(chưa có phòng)',
+    total: 'Tổng', no_room: '(chưa có phòng)', remark: 'Lưu ý',
     measure: { plan_area: 'diện tích sàn/trần', wall_area: 'diện tích tường một mặt', sheet_area: 'diện tích một mặt',
       side_area: 'tổng mặt đứng', length: 'chiều dài', elevation_area: 'rộng x cao', count: 'đếm', volume: 'thể tích' },
     work: { gross: 'tổng', openings: 'ô mở', kept: 'ô mở nhỏ không trừ', vertical: 'mặt đứng', reveals: 'má cửa, cạnh quay' },
@@ -551,7 +602,7 @@ function boqRow(t, overrides, lang, o) {
       : `Thin but lying flat (not a wall), so NOT included: ${parts(list('not_upright'))}.`);
   }
   if ((measure === 'wall_area' || measure === 'sheet_area') && list('not_straight').length) {
-    warnings.push(`Curved or segmented, measured approximately as half of its vertical faces: ${parts(list('not_straight'))}. ` +
+    warnings.push(`Curved or segmented solid, measured approximately as half of its vertical faces: ${parts(list('not_straight'))}. ` +
       'Split it into straight runs for an exact figure.');
   }
   if (AREA_MEASURES.has(measure) && measure !== 'side_area' && list('uneven_sides').length) {
@@ -638,7 +689,7 @@ function boqRow(t, overrides, lang, o) {
 /** CSV text for Excel: UTF-8 with BOM, CRLF; semicolon format = ";" separator and decimal comma.
  *  With rooms: one column per room (quantity in the row's unit) after the total. The last line says the quantities come
  *  from software. */
-function boqCsv(rows, lang, format, rooms, footer) {
+function boqCsv(rows, lang, format, rooms, footer, remarks = []) {
   const L = CSV_TEXT[lang];
   const sep = format === 'semicolon' ? ';' : ',';
   const dc = (v) => (format === 'semicolon' ? String(v).replace(/(\d)\.(\d)/g, '$1,$2') : String(v));
@@ -670,7 +721,9 @@ function boqCsv(rows, lang, format, rooms, footer) {
       ].join(sep));
     }
   }
-  if (footer) lines.push([cell(footer), ...Array((rooms ? rooms.length + 8 : H.length) - 1).fill('')].join(sep)); // as wide as the table
+  const wide = (s) => [cell(s), ...Array((rooms ? rooms.length + 8 : H.length) - 1).fill('')].join(sep); // as wide as the table
+  for (const s of remarks) lines.push(wide(dc(`${L.remark}: ${s}`)));
+  if (footer) lines.push(wide(footer));
   return BOM + lines.join('\r\n') + '\r\n';
 }
 
@@ -875,12 +928,22 @@ server.registerTool('interior_takeoff', {
   if (r.exposure_tests_skipped) {
     warnings.push(`${r.exposure_tests_skipped} vertical side(s) were not tested for being exposed (too many in this model): they are not in the quantities.`);
   }
+  for (const d of Array.isArray(r.duplicate_rooms) ? r.duplicate_rooms : []) {
+    warnings.push(`${d.groups} room groups are named "${d.room}": their quantities are added together (give them different names to keep them apart).`);
+  }
+  const capped = Array.isArray(r.capped) ? r.capped : [];
+  if (capped.includes('walls') || capped.includes('doors')) {
+    warnings.push('Very large model: doors and windows standing in walls that are not cut were looked for in the first ' +
+      '5000 wall pieces and 2000 doors and windows only.');
+  }
+  if (capped.includes('pieces')) warnings.push('detail: only the first 300 pieces of a row are listed (the quantities include all of them).');
   const software = L.software(VERSION);
   const out = {
     rows, totals,
     ...(rooms ? { rooms: rooms.map((rm) => rm || L.no_room) } : {}),
     ...(warnings.length ? { warnings } : {}),
     ...(checks.length ? { checks } : {}),
+    ...(r.exposure_tests_skipped ? { exposure_tests_skipped: r.exposure_tests_skipped } : {}),
     ...(untagged.length ? { untagged } : {}),
     ...(hiddenAll.length ? { hidden: hiddenAll } : {}),
     excluded: r.excluded && Object.keys(r.excluded).length ? r.excluded : undefined,
@@ -906,7 +969,7 @@ server.registerTool('interior_takeoff', {
     try {
       await fs.mkdir(path.dirname(csvFile), { recursive: true });
       // 'wx' fails if the file appeared meanwhile, so it is never replaced without overwrite=true
-      await fs.writeFile(csvFile, boqCsv(rows, language, csv_format, rooms, software), { encoding: 'utf8', flag: overwrite ? 'w' : 'wx' });
+      await fs.writeFile(csvFile, boqCsv(rows, language, csv_format, rooms, software, [...warnings, ...checks]), { encoding: 'utf8', flag: overwrite ? 'w' : 'wx' });
       out.csv = { path: csvFile, rows: rows.length, format: csv_format, by_room: !!rooms };
     } catch (e) {
       // keep the bill of quantities: only the file could not be written
@@ -1609,7 +1672,7 @@ bridgeTool('undo',
   'Undo the last step in SketchUp (every model-editing tool is one Undo step).',
   {}, DESTRUCTIVE);
 
-bridgeTool('run_ruby',
+if (RUN_RUBY) bridgeTool('run_ruby',
   'Run arbitrary Ruby code in SketchUp (Ruby API). Use it when the other tools are not enough.\n' +
   'Useful objects: Sketchup.active_model, model.entities, model.selection. Internal units are inches:\n' +
   'use 1000.mm, x.to_mm. The whole snippet is one Undo step. Returns the last value (inspect) and the puts output.\n' +
@@ -1677,28 +1740,45 @@ server.registerTool('screenshot', {
   }
 }));
 
-bridgeTool('export_png',
-  "Export the viewport as a PNG/JPG file (e.g. 'D:/Export/perspective.png'). width/height in pixels; view changes the camera first.",
-  {
-    path: Str, width: opt(z.number().int()), height: opt(z.number().int()),
-    view: opt(ViewName), transparent: z.boolean().default(false),
-  }, DESTRUCTIVE);
+const Overwrite = z.boolean().default(false).describe('Replace the file if it already exists (ask the user first)');
+/** A bridge tool that writes a file: an existing file is replaced only with overwrite=true. */
+function fileTool(name, description, inputSchema, needsPath = true) {
+  server.registerTool(name, { description, inputSchema: { ...inputSchema, overwrite: Overwrite }, annotations: DESTRUCTIVE },
+    async ({ overwrite, ...args }) => {
+      if (needsPath && !args.path) throw new Error('Missing path.');
+      if (args.path && !path.isAbsolute(args.path)) {
+        throw new Error(`path must be absolute (e.g. D:/Export/file.ext), got: ${args.path}`);
+      }
+      if (args.path && !overwrite && (await exists(path.resolve(args.path)))) {
+        throw new Error(`${args.path} already exists: ask the user before replacing it (overwrite=true), or choose another file name.`);
+      }
+      return text(await call(name, args));
+    });
+}
 
-bridgeTool('export_file',
+fileTool('export_png',
+  "Export the viewport as a PNG/JPG file (e.g. 'D:/Export/perspective.png'). width/height in pixels; view changes the camera first. " +
+  'An existing file is replaced only with overwrite=true.',
+  {
+    path: Str, width: opt(z.number().int().min(16).max(16000)), height: opt(z.number().int().min(16).max(16000)),
+    view: opt(ViewName), transparent: z.boolean().default(false),
+  });
+
+fileTool('export_file',
   'Export the model to a 3D/2D file chosen by extension (dae, obj, stl, fbx, dwg, dxf, 3ds...). Some formats require SketchUp Pro. ' +
   'For obj, fbx, dae and 3ds, faces that inherit their material from a group or component get it for the export, so textures ' +
   'and UVs are exported too (the model itself is not changed). For Blender use OBJ: SketchUp may write ASCII FBX, which ' +
-  'Blender cannot read.',
+  'Blender cannot read. An existing file is replaced only with overwrite=true.',
   {
     path: Str,
     bake_materials: z.boolean().default(true).describe('Give inherited materials to the faces for the export (obj, fbx, dae, 3ds)'),
     options: opt(jsonish(z.record(Str, z.union([z.boolean(), z.number(), Str])))).describe(
       'SketchUp exporter options, e.g. {"swap_yz": true, "triangulated_faces": true, "texture_maps": true, "edges": false}'),
-  }, DESTRUCTIVE);
+  });
 
-bridgeTool('save_model',
-  'Save the model. Empty path = overwrite the current file; with path = Save As.',
-  { path: opt(Str) }, DESTRUCTIVE);
+fileTool('save_model',
+  'Save the model. Empty path = save the current file; with path = Save As (an existing file is replaced only with overwrite=true).',
+  { path: opt(Str) }, false);
 
 bridgeTool('open_model',
   'Open a .skp file in SketchUp.',

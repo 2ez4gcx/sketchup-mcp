@@ -9,6 +9,25 @@ permissions:
   contents: read
 
 jobs:
+  ruby-engine:
+    # The bridge runs inside SketchUp; here its source is parsed and its measuring engine runs on known shapes
+    # against a stand-in for the SketchUp API (SketchUp 2021-2024 ship Ruby 2.7, 2025+ Ruby 3.2).
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby: ['2.7', '3.2']
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+      - run: ruby -c extension/su_mcp/main.rb
+      - run: ruby -c extension/su_mcp.rb
+      - run: ruby mcpb/scripts/engine-test.rb
+
   build-and-test:
     # Windows: install_sketchup_bridge tests use %APPDATA%-style paths.
     runs-on: windows-latest

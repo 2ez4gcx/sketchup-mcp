@@ -41,7 +41,7 @@ const fake = net.createServer((sock) => {
     if (b.raw !== undefined) { sock.end(b.raw); return; }
     if (b.writePng) fs.writeFileSync(req.params.path, PNG_1PX);
     const resp = b.error !== undefined
-      ? { id: req.id, ok: false, error: b.error, backtrace: b.backtrace }
+      ? { id: req.id, ok: false, error: b.error, backtrace: b.backtrace, ...(b.code ? { code: b.code } : {}) }
       : { id: req.id, ok: true, result: typeof b.reply === 'function' ? b.reply(req) : b.reply };
     sock.end(JSON.stringify(resp) + '\n');
   });
@@ -696,6 +696,81 @@ check('takeoff 1.6 csv: workings, gross, deducted, openings, not deducted column
   && c16.some((l) => l.startsWith('WL-01;') && l.includes('tổng 15,6 - ô mở 2,09 (2) = 13,51') && l.includes(';15,6;1,89;2;0,2;1,62;'))
   && c16.filter(Boolean).every((l) => l.split(';').length === c16[0].split(';').length) && c16.some((l) => l.startsWith('Khối lượng đo bằng phần mềm')),
   c16.slice(0, 5).join(' | '));
+// 26 (1.6.1): fixes after the audit of 1.6.0
+check('1.6.1 csv: the checks of the whole takeoff are in the file, as wide as the table, before the software line',
+  c16.some((l) => l.includes('Lưu ý: Hall: floor 4,05 m²')) && c16.findIndex((l) => l.includes('Lưu ý: ')) >= 0 && c16.findIndex((l) => l.includes('Lưu ý: ')) < c16.findIndex((l) => l.startsWith('Khối lượng đo bằng phần mềm')),
+  c16.slice(-5).join(' | '));
+behaviours.set('measure_tags', [{ reply: { ...R16, exposure_tests_skipped: 7 } }]);
+r = await S.tool('interior_takeoff', {});
+check('1.6.1: exposure_tests_skipped is a field of the result as well as a warning', JSON.parse(r.txt).exposure_tests_skipped === 7
+  && JSON.parse(r.txt).warnings.some((w) => w.startsWith('7 vertical side(s)')), r.txt.slice(0, 300));
+received.length = 0;
+const t161 = Date.now();
+await S.tool('model_info', {});
+const q161 = received[received.length - 1];
+check('1.6.1: every request carries the time after which SketchUp must not run it any more', q161 && typeof q161.expires === 'number'
+  && q161.expires > t161 && q161.expires < Date.now() + 3600 * 1000, JSON.stringify(q161));
+const old161 = path.join(appdata, 'old161.obj');
+fs.writeFileSync(old161, 'keep');
+for (const [tool, args] of [['export_file', { path: old161 }], ['export_png', { path: old161 }], ['save_model', { path: old161 }]]) {
+  received.length = 0;
+  r = await S.tool(tool, args);
+  check(`1.6.1 ${tool}: an existing file is not replaced without overwrite=true (nothing sent to SketchUp)`,
+    r.isError && /already exists/.test(r.txt) && received.length === 0, r.txt);
+  r = await S.tool(tool, { ...args, overwrite: true });
+  const q = received.find((x) => x.cmd === tool);
+  check(`1.6.1 ${tool}: overwrite=true goes through, and the flag is not sent on`, !r.isError && q && q.params.path === old161 && !('overwrite' in q.params), r.txt);
+}
+received.length = 0;
+r = await S.tool('save_model', {});
+check('1.6.1 save_model without a path: saves the current file', !r.isError && received.some((x) => x.cmd === 'save_model' && !('path' in x.params)), r.txt);
+// 27 (1.7.0): access token, run_ruby switch, rooms with the same name, lists cut short
+const tokDir = path.join(appdata, 'SketchUp', 'SketchUp 2026', 'SketchUp', 'Plugins', 'su_mcp');
+const hadTokDir = fs.existsSync(tokDir);
+fs.mkdirSync(tokDir, { recursive: true });
+const tokFile = path.join(tokDir, `token_${FAKE_PORT}.txt`);
+fs.writeFileSync(tokFile, 'tok-abc\n');
+received.length = 0;
+behaviours.set('model_info', [{ error: 'KhuongDoan::SuMcp::BadToken: This SketchUp bridge only runs commands that carry its access token.', code: 'BAD_TOKEN' },
+  { reply: (q) => ({ got: q.token }) }]);
+r = await S.tool('model_info', {});
+check('1.7 token: a command the bridge refuses for its token is sent again with the token from the bridge\'s file',
+  !r.isError && JSON.parse(r.txt).got === 'tok-abc' && received.length === 2 && !('token' in received[0]), r.txt);
+received.length = 0;
+await S.tool('list_tags', {});
+check('1.7 token: later commands carry the token at once', received.length === 1 && received[0].token === 'tok-abc', JSON.stringify(received));
+fs.writeFileSync(tokFile, 'tok-new');
+received.length = 0;
+behaviours.set('model_info', [{ error: 'KhuongDoan::SuMcp::BadToken: x', code: 'BAD_TOKEN' }, { reply: (q) => ({ got: q.token }) }]);
+r = await S.tool('model_info', {});
+check('1.7 token: a new token (SketchUp restarted) is picked up', !r.isError && JSON.parse(r.txt).got === 'tok-new', r.txt);
+behaviours.set('delete_entities', [{ error: 'KhuongDoan::SuMcp::BadToken: x', code: 'BAD_TOKEN' }, { error: 'KhuongDoan::SuMcp::BadToken: x', code: 'BAD_TOKEN' }]);
+fs.writeFileSync(tokFile, 'tok-other');
+r = await S.tool('delete_entities', { entity_ids: [1] });
+check('1.7 token: no token the bridge accepts -> a clear error, without "MAY HAVE ALREADY RUN"', r.isError && /could not read the access token/.test(r.txt)
+  && !r.txt.includes('MAY HAVE ALREADY RUN'), r.txt);
+behaviours.delete('delete_entities');
+behaviours.set('run_ruby', [{ error: 'RuntimeError: BAD_TOKEN: raised by the code itself' }]);
+received.length = 0;
+r = await S.tool('run_ruby', { code: 'raise "BAD_TOKEN: x"' });
+check('1.7 token: an error that only mentions BAD_TOKEN is not sent again', r.isError && received.length === 1, r.txt);
+r = await S.tool('export_file', { path: 'model.obj' });
+check('1.7 export_file: a relative path is refused', r.isError && /must be absolute/.test(r.txt), r.txt);
+fs.rmSync(tokFile, { force: true });
+if (!hadTokDir) fs.rmSync(path.join(appdata, 'SketchUp', 'SketchUp 2026', 'SketchUp', 'Plugins'), { recursive: true, force: true });
+const names17 = (await S.rpc('tools/list', {})).result.tools.map((t) => t.name);
+const S17 = startServer({ SKETCHUP_MCP_PORT: String(FAKE_PORT), SKETCHUP_MCP_TIMEOUT: '1', APPDATA: appdata, SKETCHUP_MCP_RUN_RUBY: 'false' });
+const init17 = await S17.init();
+const off17 = (await S17.rpc('tools/list', {})).result.tools.map((t) => t.name);
+S17.child.kill();
+check('1.7 run_ruby switch: SKETCHUP_MCP_RUN_RUBY=false removes the tool (and the instructions say so); on by default',
+  names17.includes('run_ruby') && !off17.includes('run_ruby') && off17.length === names17.length - 1
+  && /run_ruby is turned off/.test(init17.result.instructions), JSON.stringify([names17.length, off17.length]));
+behaviours.set('measure_tags', [{ reply: { ...R16, duplicate_rooms: [{ room: 'Hall', groups: 2 }], capped: ['walls', 'pieces'] } }]);
+r = await S.tool('interior_takeoff', {});
+const w17 = JSON.parse(r.txt).warnings || [];
+check('1.7 takeoff: rooms with the same name and lists cut short are reported', w17.some((w) => w.startsWith('2 room groups are named "Hall"'))
+  && w17.some((w) => /first 5000 wall pieces/.test(w)) && w17.some((w) => /first 300 pieces/.test(w)), JSON.stringify(w17));
 received.length = 0;
 await S.tool('create_room', { name: 'Study', points: [[0, 0], [3000, 0], [3000, 3000], [0, 3000]], walls: { tag: 'WL-01 Paint' },
   openings: [{ edge: 1, width: 900, height: 2100, reveal: 200, tag: 'DR-01 Door' }], labels: { reveal: 'Laibung' } });

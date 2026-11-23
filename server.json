@@ -3,7 +3,7 @@
   "name": "io.github.2ez4gcx/sketchup-mcp",
   "title": "SketchUp MCP",
   "description": "Let AI work in SketchUp: rooms, tagging, real-surface takeoff, checks, scenes, furniture, renders.",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "websiteUrl": "https://github.com/2ez4gcx/sketchup-mcp",
   "repository": {
     "url": "https://github.com/2ez4gcx/sketchup-mcp",
@@ -12,7 +12,7 @@
   },
   "icons": [
     {
-      "src": "https://raw.githubusercontent.com/2ez4gcx/sketchup-mcp/v1.6.0/mcpb/icon.png",
+      "src": "https://raw.githubusercontent.com/2ez4gcx/sketchup-mcp/v1.7.0/mcpb/icon.png",
       "mimeType": "image/png",
       "sizes": [
         "512x512"
@@ -22,9 +22,9 @@
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/2ez4gcx/sketchup-mcp/releases/download/v1.6.0/sketchup-mcp-1.6.0.mcpb",
-      "version": "1.6.0",
-      "fileSha256": "9679f739f16614e278d6c6edb5a482e3c21ee65abf82f7757b31cbb2add37fb6",
+      "identifier": "https://github.com/2ez4gcx/sketchup-mcp/releases/download/v1.7.0/sketchup-mcp-1.7.0.mcpb",
+      "version": "1.7.0",
+      "fileSha256": "094be6d02a9a82180c9374733c83a750ca8a0a5ce6972496f2e909b0415e2a6f",
       "transport": {
         "type": "stdio"
       },
@@ -41,6 +41,13 @@
           "description": "Seconds to wait for SketchUp to answer one command",
           "format": "number",
           "default": "120",
+          "isRequired": false
+        },
+        {
+          "name": "SKETCHUP_MCP_RUN_RUBY",
+          "description": "Set to false to leave the run_ruby tool out (it runs arbitrary Ruby code in SketchUp)",
+          "format": "boolean",
+          "default": "true",
           "isRequired": false
         }
       ]
